@@ -1,0 +1,293 @@
+.tab {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  /* Wraps rather than crushing the search field, for a narrow settings panel
+     or a long translated heading. */
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.count {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-tertiary, rgb(0 0 0 / 6%));
+  opacity: 0.8;
+}
+
+.sectionHead > :last-child { margin-left: auto; }
+
+/* Takes the gap the heading row already had between the count and Refresh,
+   which is what lets the search share that row instead of adding one. Growing
+   to fill it also leaves `.sectionHead > :last-child`'s auto margin nothing to
+   push with, so Refresh stays where it was. */
+.search {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* The Input's own wrapper, which is the label's last child — the only other
+   one is the visually-hidden text, and it is first and out of flow.
+   Deliberately two selectors deep: this overrides a width the Input primitive
+   sets on a single class, and the two stylesheets are injected independently,
+   so equal specificity would leave the winner up to injection order. Bounded
+   so a wide panel does not stretch one field across it, and centred by the
+   flex container in whatever is left. */
+.search > :last-child {
+  width: 100%;
+  max-width: 340px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-text-secondary, inherit);
+  opacity: 0.75;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-secondary, rgb(0 0 0 / 8%));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-secondary, transparent);
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cardToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cardIcon {
+  flex: none;
+  opacity: 0.6;
+}
+
+.cardTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.cardTitle {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-text-secondary, inherit);
+  opacity: 0.8;
+}
+
+.cardName {
+  font-family: var(--dsw-alias-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.version { opacity: 0.7; }
+
+/* An offered version that is ahead of the installed one, so the `0.1.0 → 0.2.0`
+   reads as the thing the highlighted Update button is going to fetch. */
+.versionNew {
+  opacity: 1;
+  font-weight: 600;
+  color: var(--dsw-alias-text-link, inherit);
+}
+
+/* The card frame with a ROW layout. Composing `.card` and `.cardToggle` would
+   not do it: `.card` sets `flex-direction: column`, and `.cardToggle` does not
+   set one, so the column wins and the icon, the title, and the chevron stack. */
+.sourcesToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-secondary, rgb(0 0 0 / 8%));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-secondary, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* One line, whatever the locale or the panel width. This row is a header, and
+   a header that grows a second line moves everything under it — including the
+   catalog somebody is reading. The full sentence is on the button's title, so
+   an ellipsis hides nothing. */
+.sourcesSummary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourcesBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 12px 4px;
+}
+
+.sourceTag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-tertiary, rgb(0 0 0 / 6%));
+}
+
+.docsLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: inherit;
+}
+
+.cardActions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardSummary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-text-secondary, inherit);
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.chevron {
+  flex: none;
+  opacity: 0.6;
+  transition: transform 120ms ease;
+}
+
+.chevronOpen { transform: rotate(180deg); }
+
+.failure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--dsw-alias-text-error, #b42318);
+}
+
+.logToggle {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.log {
+  margin: 0;
+  padding: 8px;
+  max-height: 220px;
+  overflow: auto;
+  font-family: var(--dsw-alias-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--dsw-alias-bg-tertiary, rgb(0 0 0 / 4%));
+  border-radius: 8px;
+}
+
+.sourceFailure {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-text-warning, #b54708);
+}
+
+.restart {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-warning, rgb(181 71 8 / 30%));
+  border-radius: 10px;
+  color: var(--dsw-alias-text-warning, #b54708);
+}
+
+.restart strong { font-size: 13px; }
+.restart p { color: inherit; opacity: 0.85; }

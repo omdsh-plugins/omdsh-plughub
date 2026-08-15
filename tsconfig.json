@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    // Both halves compile as one program: the host half needs `@types/node`,
+    // the browser half needs the DOM, and neither can be given only its own.
+    // The split that matters — a `node:` import reaching the browser bundle —
+    // is enforced where it is actually observable, by the purity gate in
+    // tsdown.config.ts.
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "declaration": true,
+    "sourceMap": true,
+    "declarationMap": true,
+    "composite": true,
+    "incremental": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"]
+}

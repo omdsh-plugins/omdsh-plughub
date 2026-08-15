@@ -1,0 +1,44 @@
+# The omdsh-plughub bundle patch: one row, inserted over whatever the profile
+# already composed.
+#
+# This package is a PROFILE LAYER, not a harness edit. `dsh plugin --profile
+# web add @omdsh-plugins/omdsh-plughub` installs it into the profile directory
+# and appends it to `dsh.profile.bundles`, so this file is applied after
+# `@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-web-app` — the harness tree
+# stays exactly as it shipped, and removing the plugin removes the row with it.
+#
+# Both halves of this row do real work:
+#
+#   - node half (`lib/index.js`) resolves the profile this runtime booted from,
+#     reads the catalog, and is the ONLY party that runs an install or a
+#     removal. It has to be the node half: the operation is `pnpm` writing the
+#     profile directory, and nothing in a page can do that;
+#   - browser half (`lib/client.js`) contributes the OMDSH Plugins tab to the
+#     Plugins settings section, and reads and writes every installed plugin's
+#     configuration straight through the harness's own settings wire.
+#
+# ## Reach
+#
+# The read routes carry the same fence `omdsh-sidepanel` puts on its filesystem
+# routes — a Host header naming us plus same-origin browser markers. The WRITE
+# routes are stricter still: loopback only, whatever `--trusted-host` says,
+# because an install runs a package's `prepare` script on this machine. And a
+# request never names a package to install; it names an ID from the catalog
+# this runtime last resolved, so the catalog is the allowlist and a caller can
+# reach nothing the configured upstreams did not already offer.
+#
+# ## What it needs
+#
+# `webServer` is a host service the base bundle already composes; `settings` is
+# how this plugin's own configuration (upstream, local sources) becomes
+# editable in its own panel, and it is optional — a composition without a
+# settings provider still gets the entry config, just not a live one.
+#
+# On a surface with no browser — the TUI, headless — the client half is never
+# fetched and the node half still answers its routes, which is harmless and
+# occasionally useful: `curl localhost:<port>/api/plughub/catalog` is a
+# perfectly good way to see what the upstream offers.
+
+- insert:
+    - id: omdsh-plughub
+      name: '@omdsh-plugins/omdsh-plughub'

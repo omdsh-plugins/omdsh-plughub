@@ -1,0 +1,13 @@
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.empty,
+.notice {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--dsw-alias-text-secondary, inherit);
+  opacity: 0.75;
+}
