@@ -179,17 +179,23 @@ export class Catalog {
   constructor(
     private options: CatalogOptions,
     private readonly fetchImpl: FetchLike,
-    private readonly ttlMs: number,
+    private ttlMs: number,
     private readonly now: () => number = () => Date.now(),
   ) {}
 
   /**
    * Adopt new configuration and drop the cache, so a settings change is
    * visible on the next read rather than after the TTL.
+   *
+   * The TTL rides along rather than staying at whatever the composition entry
+   * said: it is one of the fields the panel offers, and a namespace that
+   * applies `live` has to mean every field in it.
    * @param options - the new configuration.
+   * @param ttlMs - how long a resolution is reused from here on.
    */
-  reconfigure(options: CatalogOptions): void {
+  reconfigure(options: CatalogOptions, ttlMs: number): void {
     this.options = options
+    this.ttlMs = ttlMs
     this.invalidate()
   }
 

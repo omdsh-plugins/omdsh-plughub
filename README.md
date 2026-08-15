@@ -258,7 +258,7 @@ one thing and it lands where it reads well.
 ## Configuring it
 
 This plugin follows its own conventions, so it configures itself in its own
-panel — under **Catalog sources**, at the top of the tab. Everything below is
+panel — under **Catalog sources**, at the top of the tab. Every field but one is
 reachable from there without touching a file; the same fields can still be set
 as the composition entry in `cordis.patch.yml`, which becomes the base layer
 the panel writes over. Namespace `omdsh-plughub`:
@@ -272,9 +272,24 @@ the panel writes over. Namespace `omdsh-plughub`:
 | `maxRepos` | `100` | Most repositories examined when enumerating |
 | `timeoutMs` | `10000` | Per-request timeout for remote sources |
 | `cacheTtlMs` | `300000` | How long a resolved catalog is reused |
-| `profileDir` | derived | The profile to manage; empty uses the one this runtime booted from |
+| `profileDir` | derived | The profile to manage; empty uses the one this runtime booted from. Composition only — see below |
 | `launcher` | derived | Path to `dsh`; empty uses the running runtime, then `PATH` |
 | `pnpmPath` | derived | Path to `pnpm`; empty searches the runtime, the profile, and the usual install locations |
+
+`profileDir` is the one field the panel does not offer. Which profile this
+runtime manages is settled when the plugin mounts — the installer, the routes,
+and the bundle list a restart is judged against are all bound to it, and the
+settings layer is resolved after that. So it is `.hidden()` from the form and
+set where the plugin is composed, which is the same line `omdsh-shortcuts`
+draws between its `items` and its `bindings`.
+
+With no settings provider composed at all — a headless surface, a test bench —
+the hub runs on that composition entry and nothing else: **Catalog sources**
+says so instead of drawing a form, every installed plugin reads as declaring
+nothing to configure, and the catalog, the installs, and the removals work
+exactly as they otherwise would. The registration rides
+`ctx.inject(['settings'], …)`, so being configurable is additive here rather
+than a precondition.
 
 ## Installing it
 

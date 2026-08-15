@@ -32,7 +32,6 @@ export const en = {
   installing: 'Installing…',
   uninstalling: 'Removing…',
   updating: 'Updating…',
-  installed: 'Installed',
   installFailed: 'Install failed',
   uninstallFailed: 'Removal failed',
   updateFailed: 'Update failed',
@@ -76,7 +75,6 @@ export const en = {
   valuePlaceholder: 'value',
   writeFailed: 'Could not save: {error}',
   writeConflict: 'Somebody else changed this setting; the current value is shown.',
-  profileLabel: 'Profile',
 } as const
 
 /** Chinese dictionary. */
@@ -98,7 +96,6 @@ export const zh: Record<PlughubLocaleKey, string> = {
   installing: '安装中…',
   uninstalling: '卸载中…',
   updating: '更新中…',
-  installed: '已安装',
   installFailed: '安装失败',
   uninstallFailed: '卸载失败',
   updateFailed: '更新失败',
@@ -142,5 +139,4 @@ export const zh: Record<PlughubLocaleKey, string> = {
   valuePlaceholder: '值',
   writeFailed: '保存失败：{error}',
   writeConflict: '其他地方改动了这项设置，已显示当前取值。',
-  profileLabel: 'Profile',
 }

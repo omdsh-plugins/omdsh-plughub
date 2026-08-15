@@ -19,8 +19,6 @@ import {
   type FetchLike, type SourceEntry, type SourceResult,
 } from './source.ts'
 
-export type { FetchLike, FetchResponse } from './source.ts'
-
 /** The default manifest location for an upstream account: a `registry` repo at its default branch. */
 export function defaultRegistryUrl(upstream: string): string {
   return `https://raw.githubusercontent.com/${upstream}/registry/HEAD/registry.json`

@@ -362,10 +362,25 @@ describe('Catalog', () => {
     const fetchImpl = serving({ plugins: [] })
     const catalog = new Catalog(options('https://registry.invalid/a.json'), fetchImpl, 60_000, () => 0)
     await catalog.document(new Map())
-    catalog.reconfigure(options('https://registry.invalid/b.json'))
+    catalog.reconfigure(options('https://registry.invalid/b.json'), 60_000)
     await catalog.document(new Map())
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     expect(fetchImpl.mock.calls[1]?.[0]).toBe('https://registry.invalid/b.json')
+  })
+
+  it('adopts the ttl with the rest of the configuration', async () => {
+    let now = 0
+    const fetchImpl = serving({ plugins: [] })
+    const catalog = new Catalog(options('https://registry.invalid/r.json'), fetchImpl, 60_000, () => now)
+    await catalog.document(new Map())
+    // The panel offers this field, and the namespace applies `live`: the
+    // minute the composition entry asked for must not outlive the second the
+    // person just configured.
+    catalog.reconfigure(options('https://registry.invalid/r.json'), 1000)
+    await catalog.document(new Map())
+    now = 1001
+    await catalog.document(new Map())
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 })
 

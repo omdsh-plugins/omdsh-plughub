@@ -124,8 +124,13 @@ export const Config = Schema.object({
     .description('Per-request timeout for every remote catalog source, in milliseconds.'),
   cacheTtlMs: Schema.number().min(0).max(3600000).default(300000)
     .description('How long a resolved catalog is reused before the sources are consulted again, in milliseconds.'),
-  profileDir: Schema.string().default('')
-    .description('Profile directory to manage. Empty derives it from the profile this runtime booted from.'),
+  // Hidden from the form, the way `omdsh-shortcuts` hides its `items`: which
+  // profile this runtime manages is settled when the plugin mounts — the
+  // installer, the routes, and the bundle list a restart is judged against are
+  // all bound to it, and the settings layer is resolved after that. A control
+  // here would be one a person could set and nothing would read.
+  profileDir: Schema.string().default('').hidden()
+    .description('Profile directory to manage, read once where this plugin is composed. Empty derives it from the profile this runtime booted from.'),
   launcher: Schema.string().default('')
     .description('Path to the dsh launcher used for installs. Empty resolves it from the running runtime, then PATH.'),
   pnpmPath: Schema.string().default('')
@@ -139,7 +144,7 @@ export const Config = Schema.object({
     maxRepos: '枚举上游账号时最多检查的仓库数。',
     timeoutMs: '每个远程目录源的单次请求超时（毫秒）。',
     cacheTtlMs: '已解析的目录复用多久后重新拉取（毫秒）。',
-    profileDir: '要管理的 profile 目录；留空则取当前运行的 profile。',
+    profileDir: '要管理的 profile 目录，在组装这个插件的地方读取一次；留空则取当前运行的 profile。',
     launcher: '执行安装的 dsh 可执行文件路径；留空则先取当前运行的 runtime，再走 PATH。',
     pnpmPath: 'dsh 调用的 pnpm 可执行文件路径；留空则依次在 runtime、profile 和常见安装位置里找。',
   },
@@ -574,6 +579,18 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
     kind: 'exact',
     path: SETTINGS_PATH,
     handler: async (req, res) => {
+      // Guarded first, as every other route is: a request that is not ours
+      // must not cost a walk of the profile's manifests, and must not learn
+      // whether this deployment composes a settings provider at all.
+      if (req.method === 'GET') {
+        if (!guardRead(req, res)) return
+      } else if (req.method === 'POST') {
+        // A settings write is a Host write, held to the same bar as an install.
+        if (!guardWrite(req, res, 'changing a plugin\'s settings')) return
+      } else {
+        sendJson(res, 405, { error: 'settings are read with GET and written with POST' })
+        return
+      }
       const settings = ctx.get('settings') as SettingsLike | undefined
       if (settings === undefined) {
         sendJson(res, 503, { error: 'this deployment composes no settings provider' })
@@ -584,16 +601,9 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
       // anything but the plugin whose settings it holds.
       const owned = ownedNamespaces(profile === undefined ? [] : listInstalled(profile.dir, manifest()))
       if (req.method === 'GET') {
-        if (!guardRead(req, res)) return
         sendJson(res, 200, describeOwned(settings, owned))
         return
       }
-      if (req.method !== 'POST') {
-        sendJson(res, 405, { error: 'settings are read with GET and written with POST' })
-        return
-      }
-      // A settings write is a Host write, held to the same bar as an install.
-      if (!guardWrite(req, res, 'changing a plugin\'s settings')) return
       const body = await readBody(req)
       if (body === undefined) {
         sendJson(res, 413, { error: 'the request body is too large' })
@@ -709,7 +719,7 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
         githubToken: next.githubToken === '' ? undefined : next.githubToken,
         maxRepos: next.maxRepos,
         timeoutMs: next.timeoutMs,
-      }))
+      }), next.cacheTtlMs)
     }
     adopt()
     sctx.effect(() => scope.watch(() => { adopt() }), 'omdsh-plughub: settings adoption')

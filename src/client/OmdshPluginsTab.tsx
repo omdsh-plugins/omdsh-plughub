@@ -59,15 +59,22 @@ export interface OmdshPluginsTabInjected {
   /** Package names that registered a bespoke configuration card. */
   readonly cardIds: readonly string[]
   /**
-   * The active locale id.
+   * Read the active locale id.
    *
    * Carried on the inject face rather than read from props: `PropsLocale`
    * supplies a bound `t` and nothing else, and every label on this panel comes
    * from a plugin's own manifest or schema rather than from a dictionary — so
-   * the id itself is what this tab needs, and the registration re-reads it on
-   * every render.
+   * the id itself is what this tab needs.
+   *
+   * A thunk rather than the id, because an inject face is built ONCE per
+   * registration and memoized on the entry, while a locale switch re-renders
+   * every outlet with a fresh `t`. An id read at registration would leave the
+   * chrome translated and every plugin's own title, summary, and field
+   * description resolved against whatever language the panel first opened in.
+   * The slot system's own `label` thunks exist for the same reason.
+   * @returns the active locale id.
    */
-  readonly activeLocale: string
+  readonly activeLocale: () => string
 }
 
 /** Full component props assembled by the settings slot renderer. */
@@ -106,9 +113,12 @@ export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
   const {
     t, renderSlot,
     catalog, installed, describeSettings, install, update, uninstall, writeSetting,
-    subscribeOperations, canWrite, cardIds, activeLocale: active,
+    subscribeOperations, canWrite, cardIds, activeLocale,
   } = props
   const translate = t as Translate
+  // Per render, not per registration: this outlet re-renders on a locale
+  // switch, and this read is where the new id arrives.
+  const active = activeLocale()
 
   const [state, setState] = useState<ViewState>({ status: 'loading' })
   const [operations, setOperations] = useState<readonly OperationState[]>([])

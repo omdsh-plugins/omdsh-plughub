@@ -289,7 +289,7 @@ export const runCommand: RunCommand = (command, args, options) => new Promise((r
   try {
     child = spawn(command, [...args], { cwd: options.cwd, env: options.env, stdio: ['ignore', 'pipe', 'pipe'] })
   } catch (error) {
-    resolveRun({ code: 127, log: [error instanceof Error ? error.message : String(error)] })
+    resolveRun({ code: EXIT_NOT_FOUND, log: [error instanceof Error ? error.message : String(error)] })
     return
   }
   child.stdout?.setEncoding('utf8').on('data', (chunk: string) => { chunks.push(chunk) })
@@ -302,7 +302,7 @@ export const runCommand: RunCommand = (command, args, options) => new Promise((r
     chunks.push(error.code === 'ENOENT'
       ? `could not run ${command} in ${options.cwd} — the launcher or that directory is unreachable from this runtime`
       : error.message)
-    resolveRun({ code: 127, log: boundLog(chunks) })
+    resolveRun({ code: EXIT_NOT_FOUND, log: boundLog(chunks) })
   })
   child.on('close', (code) => { resolveRun({ code: code ?? 1, log: boundLog(chunks) }) })
 })

@@ -411,6 +411,7 @@ export function Field(props: FieldProps): ReactNode {
  * A heading introducing a nested object.
  * @param props.label - the group's resolved label.
  * @param props.depth - its nesting level.
+ * @param props.description - the schema's description, resolved for the locale.
  * @param props.comment - the schema's comment, when it wrote one.
  * @returns the heading.
  */

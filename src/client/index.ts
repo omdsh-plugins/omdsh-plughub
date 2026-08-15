@@ -113,7 +113,10 @@ export function apply(ctx: ClientContext): void {
     cardIds: ctx.slots.entries(PLUGIN_CARD_SLOT)
       .map(entry => entry.options.id)
       .filter((id): id is string => id !== undefined),
-    activeLocale: ctx.locale.getSnapshot().active,
+    // A thunk: this face is built once per registration and memoized on the
+    // entry, so an id read here would be the language the panel first opened
+    // in for the rest of the session.
+    activeLocale: () => ctx.locale.getSnapshot().active,
   })
 
   ctx.slots.inject(TAB_SLOT, () => ctx.slots.register({
