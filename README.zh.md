@@ -1,12 +1,34 @@
-# `@omdsh-plugins/omdsh-plughub`
+# omdsh-plughub
 
 [English](README.md) | 中文
 
-设置里的插件中心：在自带的 Plugins 页签旁边再加一个，列出可以从上游安装的插
-件，并且把已经装上的插件都配起来。
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 设置里的插
+件中心：在自带的 Plugins 页签旁边再加一个，列出可以从上游安装的插件，并且把已
+经装上的插件都配起来。
 
 以前装一个插件是在终端里敲 `dsh plugin --profile web add <path>`，配一个插件
 是手改 profile 的 `cordis.patch.yml`。现在这两件事都在页面上。
+
+## 它提供什么
+
+| 界面 | 从哪来 |
+|---|---|
+| 设置 → 插件 下的第三个页签 **插件中心** | `settings.plugins.tab` 里的一个条目——ui-settings 为"清单类"和"配置类"插件留的那个座位 |
+| 合并后的目录，以及每个来源的结果 | `GET /api/plughub/catalog`，由 `local`、`registry`、`github` 三个来源解析而来 |
+| 每张卡片上的安装、更新与卸载 | `POST /api/plughub/install`、`/update`、`/uninstall`，各自 shell 出去执行 `dsh plugin --profile <name>` |
+| 每个已安装插件的配置表单 | `GET`/`POST /api/plughub/settings`，转运 `ctx.settings.describe({ redactSecrets: true })` 与 `ctx.settings.mutate` |
+| 操作进度与重启提示 | `GET /api/plughub/events`，一条事件流 |
+| `omdsh.plugin.card` slot | `ctx.slots`——通用表单画不出来的控件，插件在这里注册自己的那张脸 |
+| 它自己的 settings 命名空间 `omdsh-plughub` | `ctx.settings.register`，用的就是每个插件都用的那套通用表单 |
+
+这个页面上有两个字符串指向这个包，中文里写法相同，英文里差一个字母，而这个差别
+出自约定而不是疏忽。页签叫 **插件中心**（英文 **Plugin hub**）：它属于设置界面的
+chrome，所以跟着 harness 摆在它旁边的那个页签 **Plugin list** 用 sentence case。
+另一个 **Plugin Hub** 是这个包自己的 `dsh.plughub.displayName`，它只给已安装列表
+里的一张卡片当标题——就是这个插件自己那张，由给别人的卡片取标题的同一段代码、从同
+一个字段里取出来，而 Title Case 正是[规则 5](https://omdsh-plugins.github.io/conventions/#rule-5) 对每个
+`displayName` 的要求。harness 本身没有任何改动：那个页签是一个已经发布的座位，移
+除这一行就原样交还。
 
 ## 思路
 
@@ -24,7 +46,7 @@ harness 让第二种答案成为可能，因为它本来就有一条 user-settin
 是一个配置表单需要的全部输入。
 
 所以这个包只做两件事——渲染表单、安装包——并且不认识任何一个具体的插件。明年
-才写出来的插件，只要遵守[约定](https://github.com/omdsh-plugins/omdsh-plugins/blob/HEAD/CONVENTIONS.zh.md)，装上的当天就有配置页。
+才写出来的插件，只要遵守[约定](https://omdsh-plugins.github.io/conventions/)，装上的当天就有配置页。
 
 ```
   插件（host 半边）            plughub（host 半边）        plughub（浏览器半边）
@@ -118,8 +140,27 @@ patch 层，所以新装的 bundle 确实没法热挂载——说"需要重启"�
 优先级低的来源仍然会补上赢家缺少的 `repo`——本地 checkout 很少知道自己发布在
 哪里，卡片上的链接因此更好用。
 
+开箱即用时，两个远程来源都指向这个集合的发布账号
+[`github.com/omdsh-plugins`](https://github.com/omdsh-plugins)：`upstream` 默认
+就是 `omdsh-plugins`，`registryUrl` 由它推导为
+`https://raw.githubusercontent.com/omdsh-plugins/registry/HEAD/registry.json`。
+所以装上这一个插件就是全部的引导过程——第一次打开这个标签页，集合里其余插件已经在
+目录里了，不需要配置任何东西。把 `upstream` 指向你自己的账号就能发布自己的插件集合，
+清空它则只用 `localSources`。
+
+本地来源只往下扫**一层目录**，所以一个把可安装的那一半放在 `packages/` 里的
+monorepo 不会被提供。这通常是对的——这里的 monorepo 装着的多半是**另一种形态**
+的 bundle，而一个 profile 只组装一种形态。确实想让它出现时，把 `localSources`
+直接指向里面那一层目录。
+
 失败的来源会被**报告出来**，而不是藏起来。空列表上，"这里没有插件"和"GitHub
 对这个账号限流了"长得一模一样，但只有其中一个会自己恢复。
+
+只有一个例外，而且是反方向的：**推导出来的清单地址返回 404** 算"没有"，不算"坏了"。
+一个上游账号不发布策展清单是常态，仓库枚举本来就覆盖这种情况；要是每个默认安装底下
+都挂一行红字，指着一个谁也没承诺过的文件，只会训练人忽略报告失败的那个位置。而人手
+填进 `registryUrl` 的地址是相反的情形：他本来就认为那里该有一份清单，所以它的 404
+和其他失败一样会被报告出来。
 
 清单格式是 `{ "plugins": [...] }`（裸数组也行）：
 
@@ -137,6 +178,10 @@ patch 层，所以新装的 bundle 确实没法热挂载——说"需要重启"�
 ```
 
 `spec` 可以显式写；不写时按 `github:<repo>` 推导。
+
+这个账号发布的清单在
+[`omdsh-plugins/registry`](https://github.com/omdsh-plugins/registry)，由各插件
+自己的 `package.json` 生成，而不是手工维护。
 
 ## 它持有的路由
 
@@ -205,7 +250,7 @@ patch 层，所以新装的 bundle 确实没法热挂载——说"需要重启"�
 最后一行是刻意的。一个对任意 schema 硬猜的通用表单，产出的控件会悄悄写进错误
 的形状；一次通过了校验但含义已经变了的设置写入，比没有控件更糟。需要这个表单
 画不出来的控件的插件，改为往 `omdsh.plugin.card` 注册一张卡片——见
-[约定](https://github.com/omdsh-plugins/omdsh-plugins/blob/HEAD/CONVENTIONS.zh.md)第 6 条。
+[约定](https://omdsh-plugins.github.io/conventions/#rule-6)第 6 条。
 
 每次写入都是一次按路径寻址的修改，并带上这个面板读到的 revision。按路径而不是
 整体替换，是因为面板收到的内容是脱敏过的：用屏幕上的内容重建一个 `replace`，
@@ -251,13 +296,41 @@ schema 作者只写一份，而它落在读起来合适的位置上。
 ## 安装
 
 ```sh
-dsh plugin --profile web add /path/to/omdsh-plughub
+dsh plugin --profile web add @omdsh-plugins/omdsh-plughub
 dsh web
 ```
 
-然后打开 **设置 → Plugins → OMDSH 插件**。
+然后打开 **设置 → 插件 → OMDSH 插件**，集合里其余插件已经列在那里了——上游账号
+是默认值，所以需要在终端里装的只有这一个插件。也可以按插件中心自己在卡片上用的
+写法，直接从账号装一个发布版：
 
-在任何东西发布之前想先用本地 checkout，把 `localSources` 设成放它们的目录。
+```sh
+dsh plugin --profile web add github:omdsh-plugins/omdsh-plughub
+```
+
+或者从一份 checkout 装，改插件中心本身时要的就是这种：
+
+```sh
+pnpm install && pnpm run build
+dsh plugin --profile web add /path/to/omdsh-plughub
+```
+
+想让本地 checkout 和上游并列出现，把 `localSources` 设成放它们的目录；同名包下，
+checkout 胜过任何已发布的版本。
+
+移除也是同一种写法：
+
+```sh
+dsh plugin --profile web remove @omdsh-plugins/omdsh-plughub
+```
+
+这会同时带走页签、路由和 settings 网关。Plugins 区回到**插件配置**和**插件列表**
+两个页签，而**通过**插件中心装的每个插件都还在——那些是 profile 自己的 bundle
+行，由 launcher 写入，并不由这个包持有。
+
+它旁边不需要再组装别的东西。宿主半边只 inject `webServer`，settings 注册又挂在
+`ctx.inject(['settings'], …)` 上，所以一个完全没有 settings provider 的 profile
+照样有页签、有目录、能装能卸——只是每个已安装插件都显示为没有声明可配置项。
 
 ## 命令
 
@@ -275,8 +348,33 @@ pnpm run check:harness-pin                      # 只要还链着就失败
 
 harness 声明 `settings.plugins.tab` 的原话就是，为了让"清单类插件和配置类插件
 在互不依赖的前提下协作"（`packages/client/ui-settings/src/client/contract/slots.ts`）。
-这个包是那个座位上的第三位占用者，和自带的 Configurable、All 两个页签并列。它
-没有给 harness 加任何 slot，没有打任何补丁；把它移除，Plugins 区就回到它出厂
-时的两个页签。
+这个包是那个座位上的第三位占用者，和 harness 自带的两个页签并列：**插件配置**
+（`configurable` 条目，出厂的 Bash、Agent loop、Web search 三张卡片就归它）和
+**插件列表**（`all` 条目，把组装进来的每个 bundle 列一遍）。它没有给 harness
+加任何 slot，没有打任何补丁；把它移除，Plugins 区就回到这两个页签。
+
+## 已知限制
+
+- **每一次安装、更新和卸载都需要重启。** 插件层是在启动时组装的，被监听的只有
+  用户 patch 层，所以新装的 bundle 没法热挂载。提示条说的就是这件事，它背后没有
+  一个"以后版本会悄悄修好"的东西。
+- **本地来源只往下扫一层目录。** 配置的根目录里放的是插件 checkout，凡是自己的
+  `package.json` 里没有 `dsh.bundle.patch` 的都会被跳过——所以把可安装的那一半
+  放在 `packages/` 里的 monorepo 不会被提供。想让它出现，就把 `localSources`
+  指向里面那一层。
+- **匿名的 GitHub 枚举有限流。** 不带令牌时每小时 60 次，而且无论如何 `maxRepos`
+  最多只看 100 个仓库。失败会显示在来源那一行而不是藏起来；`githubToken` 可以
+  解除限流。
+- **`profileDir` 不能在面板里改。** 这个运行时管哪个 profile，在插件挂载时、
+  settings 层解析之前就定下来了，所以这个字段对表单 `.hidden()`，只属于组装配置。
+- **写路由只限回环。** 一个开放到局域网的 `dsh web` 可以浏览目录、读面板，但安装、
+  更新、卸载和写设置都会被拒绝——把 `/api` 发布出去，并不等于同意在这台机器上执行
+  某个包的 `prepare` 脚本。
+- **一个命名空间只有在被某个已安装 bundle 声明时才可达。** 网关是按
+  `dsh.plughub.settings` 判断归属的，所以由"不是 profile 的 bundle"注册的命名
+  空间——比如 harness 自己的 `shell` 和 `agent-loop`——在这里天然看不到。
+- **通用表单画不出来的 schema 会被拒绝。** 字符串、数字、布尔、常量 union、字符串
+  列表、字符串字典和嵌套对象之外的东西，一律渲染成只读 JSON 并提示去改设置文件。
+  需要更多的插件，改为往 `omdsh.plugin.card` 注册一张卡片。
 
 [schemastery]: https://github.com/shigma/schemastery

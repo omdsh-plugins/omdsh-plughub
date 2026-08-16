@@ -52,6 +52,12 @@ export interface CatalogOptions {
   readonly upstream: string
   /** Registry manifest URL; empty disables that source. */
   readonly registryUrl: string
+  /**
+   * Whether {@link registryUrl} was derived from {@link upstream} rather than
+   * configured. It decides only one thing: whether a 404 reads as "this
+   * upstream publishes no manifest" or as a source failure.
+   */
+  readonly registryDerived: boolean
   /** Directories scanned as local sources. */
   readonly localSources: readonly string[]
   /** Token for the GitHub API, when one is configured. */
@@ -246,11 +252,11 @@ export class Catalog {
 
   /** Consult every configured source, in parallel. */
   private async resolveSources(): Promise<Resolution> {
-    const { upstream, registryUrl, localSources, maxRepos, timeoutMs, githubToken } = this.options
+    const { upstream, registryUrl, registryDerived, localSources, maxRepos, timeoutMs, githubToken } = this.options
     const locals = scanLocalSources(localSources).map(result => ['local', result] as const)
     const remote: Promise<readonly [CatalogSource, SourceResult]>[] = []
     if (registryUrl !== '') {
-      remote.push(fetchRegistrySource(registryUrl, { fetch: this.fetchImpl, timeoutMs })
+      remote.push(fetchRegistrySource(registryUrl, { fetch: this.fetchImpl, timeoutMs, derived: registryDerived })
         .then(result => ['registry', result] as const))
     }
     if (upstream !== '') {
@@ -286,12 +292,12 @@ export function catalogOptions(config: {
   readonly maxRepos: number
   readonly timeoutMs: number
 }): CatalogOptions {
-  const registryUrl = config.registryUrl !== undefined && config.registryUrl !== ''
-    ? config.registryUrl
-    : config.upstream === '' ? '' : defaultRegistryUrl(config.upstream)
+  const configured = config.registryUrl === undefined || config.registryUrl === '' ? undefined : config.registryUrl
+  const registryUrl = configured ?? (config.upstream === '' ? '' : defaultRegistryUrl(config.upstream))
   return {
     upstream: config.upstream,
     registryUrl,
+    registryDerived: configured === undefined,
     localSources: config.localSources,
     ...config.githubToken === undefined ? {} : { githubToken: config.githubToken },
     maxRepos: config.maxRepos,

@@ -103,19 +103,29 @@ export function readRegistryDocument(document: unknown): SourceEntry[] {
 /**
  * Fetch and read one registry manifest.
  * @param url - the manifest URL.
- * @param options - the fetch implementation and its timeout.
+ * @param options - the fetch implementation, its timeout, and whether this URL
+ * was derived from the upstream account rather than configured by hand.
  * @returns the entries and how the fetch fared.
  */
 export async function fetchRegistrySource(
   url: string,
-  options: { readonly fetch: FetchLike; readonly timeoutMs: number },
+  options: { readonly fetch: FetchLike; readonly timeoutMs: number; readonly derived?: boolean },
 ): Promise<SourceResult> {
   try {
     const response = await options.fetch(url, { signal: AbortSignal.timeout(options.timeoutMs) })
+    // Absent, not broken — but only for a URL this runtime GUESSED. Publishing
+    // no curated manifest is the ordinary state of an upstream account, and
+    // enumeration is what covers it; a red row under every default install,
+    // naming a file nobody ever promised, would train people to ignore the one
+    // place failures are reported. A URL somebody typed is the opposite case:
+    // they meant a manifest to be there, so its absence is worth saying.
+    if (response.status === 404 && options.derived === true) {
+      return { report: report('registry', url, []), entries: [] }
+    }
     if (!response.ok) {
-      // A 404 is the ordinary state of an upstream that has not published a
-      // manifest, so it must read as "this source has nothing", not as a
-      // broken hub — the enumeration source is what covers that case.
+      // Every other status is a real failure and reads verbatim: a rate limit,
+      // a private repository, and a broken gateway call for different things
+      // from the person looking at it.
       throw new Error(`${url} answered ${String(response.status)}`)
     }
     const entries = readRegistryDocument(JSON.parse(await response.text()))

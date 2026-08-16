@@ -1,14 +1,37 @@
-# `@omdsh-plugins/omdsh-plughub`
+# omdsh-plughub
 
 English | [中文](README.zh.md)
 
-A plugin hub inside Settings: one more tab beside the shipped Plugins pages,
-listing what you can install from a configurable upstream, and configuring
-everything already installed.
+A plugin hub inside the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+Settings: one more tab beside the shipped Plugins pages, listing what you can
+install from a configurable upstream, and configuring everything already
+installed.
 
 Installing a plugin used to be `dsh plugin --profile web add <path>` in a
 terminal, and configuring one used to be editing a profile's `cordis.patch.yml`
 by hand. This makes both a page.
+
+## What it adds
+
+| Surface | Where it comes from |
+|---|---|
+| A third tab in Settings → Plugins, **Plugin hub** | An entry in `settings.plugins.tab`, the seat ui-settings declares for inventory and configuration plugins |
+| The merged catalog, and what each source reported | `GET /api/plughub/catalog`, resolved from the `local`, `registry` and `github` sources |
+| Install, Update and Remove on every card | `POST /api/plughub/install`, `/update` and `/uninstall`, each shelling out to `dsh plugin --profile <name>` |
+| A configuration form for every installed plugin | `GET`/`POST /api/plughub/settings`, carrying `ctx.settings.describe({ redactSecrets: true })` and `ctx.settings.mutate` |
+| Operation progress and the restart banner | `GET /api/plughub/events`, an event stream |
+| The `omdsh.plugin.card` slot | `ctx.slots`, where a plugin whose control the generic form cannot draw registers its own face |
+| Its own settings namespace, `omdsh-plughub` | `ctx.settings.register`, rendered by the same generic form every other plugin gets |
+
+Two strings name this package on that page, one word apart, and the difference
+is a convention rather than an accident. The tab reads **Plugin hub**: it is
+settings chrome, so it takes the sentence case of the tab the harness ships
+beside it, **Plugin list**. **Plugin Hub** is this package's own
+`dsh.plughub.displayName`, which titles exactly one card in the installed list —
+the card for this plugin itself, drawn by the same code that titles every other
+card from the same field, and Title Case is what [rule 5](https://omdsh-plugins.github.io/conventions/?lang=en#rule-5)
+asks of every `displayName` here. Nothing in the harness is modified: the tab is
+a published seat, and removing the row hands it straight back.
 
 ## The idea
 
@@ -30,7 +53,7 @@ needs.
 So this package renders forms and installs packages, and knows nothing about
 any particular plugin. A plugin written next year gets a configuration page the
 day it is installed, having done nothing but follow
-[the conventions](https://github.com/omdsh-plugins/omdsh-plugins/blob/HEAD/CONVENTIONS.md).
+[the conventions](https://omdsh-plugins.github.io/conventions/?lang=en).
 
 ```
   plugin (host half)          plughub (host half)        plughub (browser half)
@@ -137,6 +160,16 @@ A losing source still contributes its `repo` when the winner has none — a loca
 checkout rarely knows where it is published, and the card's link is nicer for
 it.
 
+Out of the box both remote sources point at
+[`github.com/omdsh-plugins`](https://github.com/omdsh-plugins), the account this
+collection is published under: `upstream` defaults to `omdsh-plugins`, and
+`registryUrl` derives from it as
+`https://raw.githubusercontent.com/omdsh-plugins/registry/HEAD/registry.json`.
+So installing this one plugin is the whole bootstrap — the rest of the
+collection is in the catalog the first time the tab is opened, with nothing to
+configure. Point `upstream` at your own account to publish a collection of your
+own, or empty it to run on `localSources` alone.
+
 A local source is scanned exactly one directory deep, so a monorepo whose
 installable half sits in `packages/` is not offered. That is usually right —
 what a monorepo here holds is a bundle for a DIFFERENT surface, and a profile
@@ -146,6 +179,14 @@ want one listed.
 A source that fails is REPORTED rather than hidden. "No plugins here" and
 "GitHub rate-limited this account" look identical on an empty list, and only
 one of them resolves itself.
+
+With one exception, in the other direction: a **404 on a derived manifest URL**
+is absence, not failure. Publishing no curated manifest is the ordinary state of
+an upstream account, enumeration is what covers it, and a red row under every
+default install — naming a file nobody ever promised — would only teach people
+to ignore the place failures are reported. A URL somebody typed into
+`registryUrl` is the opposite case: they meant a manifest to be there, so a 404
+on it is reported like any other.
 
 The registry manifest is `{ "plugins": [...] }` (or a bare array):
 
@@ -163,6 +204,10 @@ The registry manifest is `{ "plugins": [...] }` (or a bare array):
 ```
 
 `spec` may be given explicitly; omitted, it is `github:<repo>`.
+
+The manifest this account publishes lives in
+[`omdsh-plugins/registry`](https://github.com/omdsh-plugins/registry), generated
+from the plugins' own `package.json` files rather than kept by hand.
 
 ## The routes it holds
 
@@ -241,7 +286,7 @@ The last row is deliberate. A generic form that guesses at an arbitrary schema
 produces controls that silently write the wrong shape, and a settings write
 that passes validation while meaning something else is worse than no control
 at all. A plugin that needs a control this form will not draw registers a card
-in `omdsh.plugin.card` instead — see rule 6 of [the conventions](https://github.com/omdsh-plugins/omdsh-plugins/blob/HEAD/CONVENTIONS.md).
+in `omdsh.plugin.card` instead — see rule 6 of [the conventions](https://omdsh-plugins.github.io/conventions/?lang=en#rule-6).
 
 Every write is one path-addressed op carrying the revision this panel read.
 Path-addressed rather than wholesale because what the panel received was
@@ -291,17 +336,49 @@ exactly as they otherwise would. The registration rides
 `ctx.inject(['settings'], …)`, so being configurable is additive here rather
 than a precondition.
 
-## Installing it
+## Install
 
 ```sh
-dsh plugin --profile web add /path/to/omdsh-plughub
+dsh plugin --profile web add @omdsh-plugins/omdsh-plughub
 dsh web
 ```
 
-Then **Settings → Plugins → OMDSH Plugins**.
+Then **Settings → Plugins → OMDSH Plugins**, where the rest of the collection is
+already listed — the upstream account is the default, so this is the only plugin
+that has to be installed from a terminal. A release can equally be named the way
+the hub names one on a card, straight from the account:
 
-To offer your local checkouts before anything is published, set
-`localSources` to the directory holding them.
+```sh
+dsh plugin --profile web add github:omdsh-plugins/omdsh-plughub
+```
+
+Or from a checkout, when you are working on the hub itself:
+
+```sh
+pnpm install && pnpm run build
+dsh plugin --profile web add /path/to/omdsh-plughub
+```
+
+To offer your local checkouts alongside the upstream, set `localSources` to the
+directory holding them; a checkout wins over anything published under the same
+package name.
+
+Remove it the same way:
+
+```sh
+dsh plugin --profile web remove @omdsh-plugins/omdsh-plughub
+```
+
+which takes the tab, the routes, and the settings gateway with it. The Plugins
+section goes back to **Plugin configuration** and **Plugin list**, and every
+plugin installed THROUGH the hub stays installed — those are the profile's own
+bundle rows, written by the launcher, not held by this package.
+
+Nothing else has to be composed beside it. The host half injects `webServer` and
+nothing more, and the settings registration rides `ctx.inject(['settings'], …)`,
+so a profile with no settings provider at all still gets the tab, the catalog,
+the installs and the removals — every installed plugin simply reads as declaring
+nothing to configure.
 
 ## Commands
 
@@ -320,8 +397,40 @@ pnpm run check:harness-pin                      # fails while anything is linked
 The harness declares `settings.plugins.tab` precisely so that "inventory and
 configuration plugins collaborate without depending on one another"
 (`packages/client/ui-settings/src/client/contract/slots.ts`). This package is a
-third occupant of that seat, beside the shipped Configurable and All tabs. It
-adds no slot to the harness, patches nothing, and removing it leaves the
-Plugins section with the two tabs it shipped with.
+third occupant of that seat, beside the two tabs the harness ships there:
+**Plugin configuration** (the `configurable` entry, which owns the shipped Bash,
+Agent loop and Web search cards) and **Plugin list** (the `all` entry, the
+inventory of every composed bundle). It adds no slot to the harness, patches
+nothing, and removing it leaves the Plugins section with those two.
+
+## Known limitations
+
+- **Every install, update and removal needs a restart.** Plugin layers are
+  composed at boot and only the user patch layers are watched, so a newly
+  installed bundle cannot be hot-mounted. The banner says so; there is nothing
+  behind it that a future version quietly fixes.
+- **A local source is scanned exactly one directory deep.** A configured root
+  holds plugin checkouts, and anything that does not declare `dsh.bundle.patch`
+  in its own `package.json` is passed over — so a monorepo whose installable
+  half sits in `packages/` is not offered. Point `localSources` at the inner
+  directory when you want one listed.
+- **Anonymous GitHub enumeration is rate-limited.** 60 requests an hour without
+  a token, and `maxRepos` stops at 100 repositories in any case. The failure is
+  reported on the source row rather than hidden; `githubToken` lifts it.
+- **`profileDir` cannot be set from the panel.** Which profile this runtime
+  manages is settled when the plugin mounts, before the settings layer resolves,
+  so the field is `.hidden()` and belongs on the composition entry.
+- **The write routes are loopback only.** A `dsh web` published to the LAN can
+  browse the catalog and read the panel, but installs, updates, removals and
+  settings writes are refused — publishing `/api` is not consent to run a
+  package's `prepare` script on this machine.
+- **A namespace is reachable only when an installed bundle declares it.** The
+  gateway resolves ownership from `dsh.plughub.settings`, so a namespace
+  registered by something the profile does not carry as a bundle — the harness's
+  own `shell` or `agent-loop` — is invisible here by construction.
+- **The generic form refuses schemas it cannot draw.** Anything outside strings,
+  numbers, booleans, closed unions, string lists, string dictionaries and nested
+  objects renders as read-only JSON with a pointer at the settings document. A
+  plugin that needs more registers a card in `omdsh.plugin.card`.
 
 [schemastery]: https://github.com/shigma/schemastery

@@ -24,7 +24,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
-     * One plugin's bespoke configuration card inside the OMDSH Plugins tab.
+     * One plugin's bespoke configuration card inside the Plugin hub tab.
      *
      * Register with `id` set to your PACKAGE NAME: that is how the tab knows
      * which installed plugin your card belongs to, and it is what lets the tab

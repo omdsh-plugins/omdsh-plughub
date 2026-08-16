@@ -50,7 +50,7 @@ export function resolveTextOr(text: LocalizedText | undefined, locale: string, f
 
 /**
  * A package name shortened for a card title, when no display name was given.
- * The scope is noise on a card that is already inside "OMDSH Plugins", and the
+ * The scope is noise on a card that is already inside "Plugin hub", and the
  * `omdsh-` prefix is the same word repeated.
  * @param packageName - the full package name.
  * @returns the shortened title.

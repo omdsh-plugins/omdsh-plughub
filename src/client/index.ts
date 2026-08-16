@@ -84,7 +84,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = ['slots', 'locale', 'connection']
 
 /**
- * Contribute the OMDSH Plugins tab to the Plugins settings section.
+ * Contribute the Plugin hub tab to the Plugins settings section.
  * @param ctx - the browser plugin context.
  */
 export function apply(ctx: ClientContext): void {

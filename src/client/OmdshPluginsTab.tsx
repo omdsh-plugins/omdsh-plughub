@@ -1,5 +1,5 @@
 /**
- * The OMDSH Plugins tab: two regions, one state machine.
+ * The Plugin hub tab: two regions, one state machine.
  *
  * The tab owns every read and every write, and the regions below it are
  * presentational. That is not tidiness — it is the only place that can order a

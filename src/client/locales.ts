@@ -15,7 +15,12 @@ export type PlughubLocaleKey = keyof typeof en
 
 /** English dictionary. */
 export const en = {
-  tab: 'OMDSH Plugins',
+  // Sentence case, to sit beside the tabs the harness ships next to it —
+  // 'Plugin configuration' and 'Plugin list'. This string is settings CHROME
+  // and follows the chrome's convention, not rule 5's Title Case for a
+  // plugin's `dsh.plughub.displayName`; that is why the card for this plugin
+  // in the installed list reads 'Plugin Hub' and this reads 'Plugin hub'.
+  tab: 'Plugin hub',
 
   catalogHeading: 'Available',
   catalogEmpty: 'No plugins were offered by the configured sources.',
@@ -79,7 +84,7 @@ export const en = {
 
 /** Chinese dictionary. */
 export const zh: Record<PlughubLocaleKey, string> = {
-  tab: 'OMDSH 插件',
+  tab: '插件中心',
 
   catalogHeading: '可安装',
   catalogEmpty: '配置的来源没有提供任何插件。',

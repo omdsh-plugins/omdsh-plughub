@@ -13,7 +13,7 @@
 #     reads the catalog, and is the ONLY party that runs an install or a
 #     removal. It has to be the node half: the operation is `pnpm` writing the
 #     profile directory, and nothing in a page can do that;
-#   - browser half (`lib/client.js`) contributes the OMDSH Plugins tab to the
+#   - browser half (`lib/client.js`) contributes the Plugin hub tab to the
 #     Plugins settings section, and reads and writes every installed plugin's
 #     configuration straight through the harness's own settings wire.
 #

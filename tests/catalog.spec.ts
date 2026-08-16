@@ -352,10 +352,32 @@ describe('Catalog', () => {
     const catalog = new Catalog(options('https://registry.invalid/r.json'), serving({}, false), 60_000, () => 0)
     const document = await catalog.document(new Map())
     expect(document.entries).toEqual([])
+    // This URL was CONFIGURED, so somebody meant a manifest to be there and its
+    // absence is worth saying — unlike the derived URL below.
     expect(document.sources[0]?.ok).toBe(false)
     // Shown verbatim, because "404" and "rate limited" call for different
     // things from the person reading it.
     expect(document.sources[0]?.error).toContain('404')
+  })
+
+  it('reads a missing DERIVED manifest as an upstream that publishes none', async () => {
+    // The default configuration's shape: no registryUrl, so the hub guesses one
+    // from the account. An account with no `registry` repository is the
+    // ordinary case, and enumeration is what covers it.
+    const fetchImpl = vi.fn(async (url: string) => url.startsWith('https://raw.githubusercontent.com/')
+      ? { ok: false, status: 404, text: () => Promise.resolve('404: Not Found') }
+      : { ok: true, status: 200, text: () => Promise.resolve('[]') })
+    const catalog = new Catalog(
+      catalogOptions({ upstream: 'omdsh-plugins', localSources: [], maxRepos: 10, timeoutMs: 1000 }),
+      fetchImpl,
+      60_000,
+      () => 0,
+    )
+    const document = await catalog.document(new Map())
+    const registry = document.sources.find(source => source.source === 'registry')
+    expect(registry?.ok).toBe(true)
+    expect(registry?.count).toBe(0)
+    expect(registry?.error).toBeUndefined()
   })
 
   it('drops the cache when the configuration changes', async () => {
@@ -386,14 +408,19 @@ describe('Catalog', () => {
 
 describe('catalogOptions', () => {
   it('derives the registry url from the upstream account', () => {
-    expect(catalogOptions({ upstream: 'omdsh-plugins', localSources: [], maxRepos: 1, timeoutMs: 1 }).registryUrl)
-      .toBe('https://raw.githubusercontent.com/omdsh-plugins/registry/HEAD/registry.json')
+    const resolved = catalogOptions({ upstream: 'omdsh-plugins', localSources: [], maxRepos: 1, timeoutMs: 1 })
+    expect(resolved.registryUrl).toBe('https://raw.githubusercontent.com/omdsh-plugins/registry/HEAD/registry.json')
+    // Carried, because it is what makes a 404 on this URL absence rather than
+    // failure — nobody promised the file the hub just guessed at.
+    expect(resolved.registryDerived).toBe(true)
   })
 
   it('leaves an explicit url alone, and disables the source when there is no upstream', () => {
-    expect(catalogOptions({
+    const explicit = catalogOptions({
       upstream: 'x', registryUrl: 'https://elsewhere.invalid/r.json', localSources: [], maxRepos: 1, timeoutMs: 1,
-    }).registryUrl).toBe('https://elsewhere.invalid/r.json')
+    })
+    expect(explicit.registryUrl).toBe('https://elsewhere.invalid/r.json')
+    expect(explicit.registryDerived).toBe(false)
     expect(catalogOptions({ upstream: '', localSources: [], maxRepos: 1, timeoutMs: 1 }).registryUrl).toBe('')
   })
 })
