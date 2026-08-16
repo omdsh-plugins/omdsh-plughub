@@ -264,6 +264,31 @@ The `allowBuilds` entry is written into the profile's `pnpm-workspace.yaml`
 BEFORE the install, because the failure arrives one restart later than the
 mistake.
 
+The package NAME is the right entry for a registry dependency and not enough
+for a git one. pnpm keys a git-hosted package by the tarball it resolved —
+`@scope/name@https://codeload.github.com/owner/repo/tar.gz/<sha>` — and refuses
+an allowlist naming anything else, so the entry written ahead of the install is
+correct in form and inert in fact. That commit is not knowable beforehand
+without re-implementing pnpm's resolution, and it changes on every push.
+
+So the name goes in first, and if pnpm refuses anyway it is asked. Its refusal
+prints the exact key it wants; that key is read back, written, and the install
+runs again.
+
+It runs again as many times as it keeps learning something, because pnpm
+reports the refusals it REACHED rather than the ones it would reach next. A
+plugin with a native dependency is blocked on that dependency first and on its
+own `prepare` only once the dependency is allowed — `omdsh-remdev` takes three
+passes for exactly that reason. Progress is the loop's condition, not a count:
+an entry already set to `true` is nothing new to write, so the loop ends the
+moment an attempt teaches it nothing, and a bound of four is a backstop rather
+than the thing that stops a healthy install.
+
+One thing pnpm does that has to be answered rather than read: it writes the
+blocked package into that file ITSELF, valued `set this to true or false`. That
+is a question, and the person who pressed Install already answered it, so the
+value is replaced rather than treated as an entry that already exists.
+
 Operations run one at a time: two `pnpm` runs in one directory race over the
 same lockfile, and the loser's diagnostic describes the race rather than
 anything the person did.

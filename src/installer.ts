@@ -22,6 +22,38 @@
  * next boot dies on `Cannot find module .../lib/index.js`. The allowlist entry
  * is written before the install, not after a failure, because the failure
  * arrives one restart later than the mistake.
+ *
+ * ### The name is not the key
+ *
+ * Writing the package NAME is right for a registry dependency and not enough
+ * for a git one. pnpm keys a git-hosted package by the tarball it actually
+ * resolved — `@scope/name@https://codeload.github.com/owner/repo/tar.gz/<sha>`
+ * — and refuses an allowlist that names anything else, so the entry written
+ * ahead of the install is correct in form and inert in fact. The commit is not
+ * knowable beforehand without re-implementing pnpm's own resolution, and it
+ * changes on every push to the plugin.
+ *
+ * So the name goes in first, and if pnpm refuses anyway it is asked. Its
+ * refusal prints the exact key it wants; {@link blockedBuilds} reads it back,
+ * {@link allowBuild} writes it, and the install runs once more. That is one
+ * retry and never a loop: a second refusal names a key the file already holds,
+ * so there is nothing left to write and the failure is reported as it stands.
+ *
+ * ### Two refusals, and one this cannot answer
+ *
+ * A plugin's own `prepare` is one of them. The other is a DEPENDENCY that
+ * builds itself — `omdsh-sidepanel` and `omdsh-code` pull in `node-pty` — which
+ * pnpm blocks under `ERR_PNPM_IGNORED_BUILDS` and allows on the bare name.
+ * Both are read from one failure, so a plugin that trips both costs one retry
+ * rather than two.
+ *
+ * Neither reaches a refusal from INSIDE a git plugin's build. Preparing a
+ * git-hosted package runs `pnpm install` in a directory under pnpm's store to
+ * fetch that plugin's devDependencies; when THAT install is the one blocked —
+ * on `esbuild`, say — it surfaces as `ERR_PNPM_PREPARE_PACKAGE` and no
+ * allowlist in the profile applies to it. Publishing the plugin is what avoids
+ * it, and that is a property of the plugin rather than a bug in this module: a
+ * registry install downloads a built tree and runs no build at all.
  * @module @omdsh-plugins/omdsh-plughub/installer
  */
 
@@ -43,6 +75,14 @@ const WORKSPACE_FILE = 'pnpm-workspace.yaml'
 
 /** Where the launcher's own binary would sit inside an installation. */
 const BIN_RELATIVE = join('node_modules', '.bin', 'dsh')
+
+/**
+ * How many times an install may be re-run after writing what pnpm asked for.
+ * Two refusals are reachable in sequence — a dependency's build, then the
+ * plugin's own `prepare` — so one pass is not enough; the loop ends on lack of
+ * progress well before this.
+ */
+const ALLOW_PASSES = 4
 
 /** Shell convention: a program, or something it needed, was not found. */
 const EXIT_NOT_FOUND = 127
@@ -211,9 +251,23 @@ export function withAllowBuild(text: string, packageName: string): string | unde
     const leading = /^(\s+)/.exec(line)
     if (leading === null) break // dedented back to the top level: the block ended
     const entry = line.trim()
-    // Match on the key however it was quoted, so re-running is a no-op.
-    const key = /^(['"]?)(.*?)\1\s*:/.exec(entry)?.[2]
-    if (key === packageName) return undefined
+    // Key and value, with the key matched however it was quoted so re-running
+    // is a no-op.
+    const parsed = /^(['"]?)(.*?)\1\s*:\s*(.*)$/u.exec(entry)
+    if (parsed?.[2] === packageName) {
+      // Already allowed: nothing to write, and returning undefined is what
+      // ends the caller's retry rather than repeating an attempt pnpm has
+      // already answered.
+      if ((parsed[3] ?? '').trim() === 'true') return undefined
+      // Present but not an allowance. pnpm writes the blocked package into
+      // this file ITSELF, valued `set this to true or false`, which is a
+      // question rather than a setting — and a question the person who
+      // pressed Install in the hub already answered by pressing it. Deciding
+      // it is the whole reason this module edits the file at all.
+      const next = [...lines]
+      next[index] = `${leading[1] ?? ''}${quoted}: true`
+      return next.join('\n')
+    }
     indent = leading[1] ?? indent
     insertAt = index + 1
   }
@@ -245,6 +299,102 @@ export function allowBuild(profileDir: string, packageName: string): boolean {
   if (next === undefined) return false
   writeFileSync(path, next)
   return true
+}
+
+/** pnpm's own name for the refusal a git plugin's own `prepare` hits. */
+const GIT_BUILD_REFUSAL = 'ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED'
+
+/** pnpm's own name for the refusal a DEPENDENCY's build script hits. */
+const IGNORED_BUILDS = 'ERR_PNPM_IGNORED_BUILDS'
+
+/** The sentence that carries the ignored packages, and everything after it. */
+const IGNORED_BUILDS_LABEL = 'Ignored build scripts:'
+
+/**
+ * The allowlist key pnpm asked for, read out of the refusal that named it.
+ *
+ * pnpm prints the key it wants as a copyable example — an `allowBuilds:` line
+ * followed by one indented `<key>: true`. That printed line is taken verbatim
+ * rather than composed from the error's other fields, because it IS the answer
+ * to the question, in whatever form that version of pnpm keys by.
+ *
+ * The key holds a URL, so it holds colons; the split is on the LAST `: true`
+ * rather than the first colon. And the whole read is gated on the refusal's
+ * own error code, so an `allowBuilds:` mentioned by any other output — a
+ * person's comment quoted back in a diff, a different diagnostic — is never
+ * mistaken for pnpm dictating a key.
+ * @param log - the failed command's captured output.
+ * @returns the key, or undefined when this failure was not that refusal.
+ */
+export function gitBuildKey(log: readonly string[]): string | undefined {
+  if (!log.some(line => line.includes(GIT_BUILD_REFUSAL))) return undefined
+  for (let index = 0; index < log.length; index += 1) {
+    if ((log[index] ?? '').trim() !== 'allowBuilds:') continue
+    const entry = (log[index + 1] ?? '').trim()
+    // Greedy, so the capture runs to the last `: true` and keeps the URL's
+    // own colons; the value is pnpm's, and only `true` is an allowance.
+    const key = /^(.+):\s*true$/u.exec(entry)?.[1]?.trim()
+    // A git key is a package name joined to the tarball pnpm resolved. Anything
+    // without that shape is not what this is for, and writing it would put a
+    // line into somebody's settings file for no reason.
+    if (key !== undefined && key.includes('://')) return key
+  }
+  return undefined
+}
+
+/**
+ * The dependencies pnpm skipped the build scripts of.
+ *
+ * A plugin can depend on a package that builds itself — `omdsh-sidepanel` and
+ * `omdsh-code` both pull in `node-pty` — and pnpm blocks those the same way it
+ * blocks a git plugin's own `prepare`, under a different error and a different
+ * key. Here the key is the bare NAME: pnpm prints `name@version` and allows on
+ * the name, so the version is dropped. Scoped names carry an `@` of their own,
+ * which is why the split is on the LAST one.
+ * @param log - the failed command's captured output.
+ * @returns the package names, or none when this failure was not that refusal.
+ */
+export function ignoredBuildNames(log: readonly string[]): string[] {
+  if (!log.some(line => line.includes(IGNORED_BUILDS))) return []
+  const names: string[] = []
+  for (const line of log) {
+    const index = line.indexOf(IGNORED_BUILDS_LABEL)
+    if (index === -1) continue
+    for (const item of line.slice(index + IGNORED_BUILDS_LABEL.length).split(',')) {
+      const entry = item.trim()
+      if (entry === '') continue
+      // Strip a trailing VERSION, never a trailing URL: pnpm names a blocked
+      // git dependency by its whole resolved key here too
+      // (`@scope/name@https://codeload…`), and cutting at that `@` would leave
+      // the bare name — which the allowlist may already hold, so the retry
+      // would read a real refusal as no progress and stop.
+      const at = entry.lastIndexOf('@')
+      const name = at > 0 && !entry.slice(at + 1).includes('://') ? entry.slice(0, at) : entry
+      if (name !== '' && !names.includes(name)) names.push(name)
+    }
+  }
+  return names
+}
+
+/**
+ * Everything pnpm refused to build, in the form it will accept an allowance in.
+ *
+ * The two refusals are read together because one install can only report the
+ * one it reached first, and answering both from one pass is what keeps a
+ * plugin with a native dependency from costing two round trips.
+ *
+ * What neither answers is a refusal from INSIDE a git plugin's own build. That
+ * one runs `pnpm install` in a directory under pnpm's store to fetch the
+ * plugin's devDependencies, fails there on a package like `esbuild`, and
+ * surfaces as `ERR_PNPM_PREPARE_PACKAGE`. No allowlist in the profile reaches
+ * that directory. Publishing the plugin is what avoids it: a registry install
+ * downloads a built tree and runs no build at all.
+ * @param log - the failed command's captured output.
+ * @returns the keys to allow, in the order they should be written.
+ */
+export function blockedBuilds(log: readonly string[]): string[] {
+  const key = gitBuildKey(log)
+  return [...key === undefined ? [] : [key], ...ignoredBuildNames(log)]
 }
 
 /** One spawned command's outcome. */
@@ -434,7 +584,7 @@ export class Installer {
       path: process.env['PATH'],
     })
     const prefix = pnpmDir === undefined ? launcher.pathPrefix : [...launcher.pathPrefix, pnpmDir]
-    const outcome = await this.run(launcher.command, [...launcher.args, ...args], {
+    const attempt = (): Promise<RunOutcome> => this.run(launcher.command, [...launcher.args, ...args], {
       // Run from the profile so a relative path argument could never be
       // anchored anywhere surprising — every specifier this plugin passes is
       // already absolute or remote, and this keeps that true by construction.
@@ -449,6 +599,23 @@ export class Installer {
         PATH: withPathPrefix(process.env['PATH'], prefix),
       },
     })
+
+    // pnpm reports the refusals it reached, not the ones it would reach next:
+    // a plugin with a native dependency is blocked on that first and on its own
+    // `prepare` only once the dependency is allowed. So this answers each
+    // refusal and runs again, and stops the moment an attempt names nothing
+    // new — `allowBuild` answers false for a key already set to `true`, which
+    // is what makes progress the loop's condition rather than a count. The
+    // bound is a backstop against a pnpm that would name a key writing it does
+    // not satisfy, and never the thing that ends a healthy install.
+    let outcome = await attempt()
+    for (let pass = 0; pass < ALLOW_PASSES && outcome.code !== 0; pass += 1) {
+      const written = blockedBuilds(outcome.log)
+        .filter(key => allowBuild(this.options.profileDir, key))
+      if (written.length === 0) break
+      outcome = await attempt()
+    }
+
     if (outcome.code === 0) return { ...accepted, status: 'ok', log: outcome.log }
     return {
       ...accepted,

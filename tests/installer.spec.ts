@@ -14,7 +14,8 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { OperationState } from '../src/contract.ts'
 import {
-  allowBuild, boundLog, Installer, isLauncherEntry, resolveLauncher, withAllowBuild,
+  allowBuild, blockedBuilds, boundLog, gitBuildKey, ignoredBuildNames, Installer, isLauncherEntry,
+  resolveLauncher, withAllowBuild,
   withPathPrefix, type RunCommand, type RunningProcess,
 } from '../src/installer.ts'
 
@@ -71,6 +72,28 @@ describe('withAllowBuild', () => {
 
   it('writes a block into an empty file', () => {
     expect(withAllowBuild('', '@x/omdsh-a')).toBe('\nallowBuilds:\n  \'@x/omdsh-a\': true\n')
+  })
+})
+
+describe('withAllowBuild on an entry pnpm wrote itself', () => {
+  const asked = "packages:\n  - .\n\nallowBuilds:\n  node-pty: set this to true or false\n"
+
+  it('answers the question pnpm left, rather than reading it as already allowed', () => {
+    expect(withAllowBuild(asked, 'node-pty')).toContain("'node-pty': true")
+    expect(withAllowBuild(asked, 'node-pty')).not.toContain('set this to true or false')
+  })
+
+  it('adds no second entry for the same package', () => {
+    const next = withAllowBuild(asked, 'node-pty') ?? ''
+    expect(next.split('node-pty').length - 1).toBe(1)
+  })
+
+  it('leaves an entry already set to true alone, which is what ends the retry', () => {
+    expect(withAllowBuild("allowBuilds:\n  'node-pty': true\n", 'node-pty')).toBeUndefined()
+  })
+
+  it('turns a deliberate false into true, because pressing Install is the answer', () => {
+    expect(withAllowBuild("allowBuilds:\n  'node-pty': false\n", 'node-pty')).toContain("'node-pty': true")
   })
 })
 
@@ -198,6 +221,74 @@ describe('boundLog', () => {
   })
 })
 
+const REFUSAL_KEY = '@x/omdsh-a@https://codeload.github.com/o/omdsh-a/tar.gz/ed316bd'
+
+/** pnpm's refusal, as `boundLog` hands it over: blank lines already dropped. */
+function refusalLog(key = REFUSAL_KEY): string[] {
+  return [
+    '[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] Failed to prepare git-hosted package fetched from',
+    'This error happened while installing a direct dependency of /tmp/profiles/web',
+    'Add the package to "allowBuilds" in your project\'s pnpm-workspace.yaml. For example:',
+    'allowBuilds:',
+    `  ${key}: true`,
+  ]
+}
+
+describe('gitBuildKey', () => {
+  it('reads the key pnpm printed, colons in the URL and all', () => {
+    expect(gitBuildKey(refusalLog())).toBe(REFUSAL_KEY)
+  })
+
+  it('answers nothing for a failure that was not that refusal', () => {
+    expect(gitBuildKey(['ERR_PNPM_FETCH_404 Not Found', 'allowBuilds:', '  @x/a@https://h/t: true']))
+      .toBeUndefined()
+  })
+
+  it('answers nothing when the refusal named no key', () => {
+    expect(gitBuildKey(['[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] blocked'])).toBeUndefined()
+  })
+
+  it('ignores a bare package name, which is not what pnpm keys a git package by', () => {
+    expect(gitBuildKey([...refusalLog('@x/omdsh-a')])).toBeUndefined()
+  })
+
+  it('ignores a value that is not an allowance', () => {
+    expect(gitBuildKey([...refusalLog().slice(0, 4), `  ${REFUSAL_KEY}: false`])).toBeUndefined()
+  })
+})
+
+describe('ignoredBuildNames', () => {
+  it('reads the bare names pnpm blocked, dropping the versions it printed', () => {
+    expect(ignoredBuildNames(['[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: node-pty@1.1.0']))
+      .toEqual(['node-pty'])
+  })
+
+  it('splits a list, and keeps a scoped name whole', () => {
+    expect(ignoredBuildNames(['[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.28.2, @scope/thing@2.0.0']))
+      .toEqual(['esbuild', '@scope/thing'])
+  })
+
+  it('answers nothing for a failure that was not that refusal', () => {
+    expect(ignoredBuildNames(['Ignored build scripts: node-pty@1.1.0'])).toEqual([])
+  })
+
+  it('keeps a resolved git key whole, because the URL is part of it and not a version', () => {
+    expect(ignoredBuildNames([`[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: ${REFUSAL_KEY}`]))
+      .toEqual([REFUSAL_KEY])
+  })
+})
+
+describe('blockedBuilds', () => {
+  it('answers both refusals from one failure, so a plugin tripping both costs one retry', () => {
+    expect(blockedBuilds([...refusalLog(), '[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: node-pty@1.1.0']))
+      .toEqual([REFUSAL_KEY, 'node-pty'])
+  })
+
+  it('answers nothing for a failure that was neither', () => {
+    expect(blockedBuilds(['[ERR_PNPM_FETCH_404] Not Found'])).toEqual([])
+  })
+})
+
 describe('Installer', () => {
   /** A runner that records its calls and answers a fixed code. */
   function stubRunner(code = 0, log: string[] = []): RunCommand & { calls: string[][] } {
@@ -227,6 +318,103 @@ describe('Installer', () => {
     await installer.drain()
     expect(run.calls[0]).toEqual(['/bin/dsh', 'plugin', '--profile', 'web', 'add', 'github:o/omdsh-a'])
     expect(sink.states.map(state => state.status)).toEqual(['running', 'ok'])
+  })
+
+  /** A runner that refuses the first call the way pnpm does, then answers `code`. */
+  function refusingRunner(code = 0): RunCommand & { calls: string[][] } {
+    const calls: string[][] = []
+    const run: RunCommand = (command, args) => {
+      calls.push([command, ...args])
+      return Promise.resolve(calls.length === 1
+        ? { code: 1, log: refusalLog() }
+        : { code, log: [] })
+    }
+    return Object.assign(run, { calls })
+  }
+
+  it('writes the key pnpm dictated and runs the install again', async () => {
+    const dir = scratch()
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), TEMPLATE)
+    const run = refusingRunner()
+    const sink = collector()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: '/tmp/home', launcher: () => '/bin/dsh', run },
+      sink.onChange,
+    )
+    installer.install('@x/omdsh-a', 'github:o/omdsh-a')
+    await installer.drain()
+
+    expect(run.calls).toHaveLength(2)
+    expect(run.calls[1]).toEqual(run.calls[0])
+    expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain(`'${REFUSAL_KEY}': true`)
+    expect(sink.states.at(-1)?.status).toBe('ok')
+  })
+
+  it('answers refusals that arrive one after another, not just the first', async () => {
+    const dir = scratch()
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), TEMPLATE)
+    const calls: string[][] = []
+    const run: RunCommand = (command, args) => {
+      calls.push([command, ...args])
+      if (calls.length === 1) {
+        return Promise.resolve({ code: 1, log: ['[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: node-pty@1.1.0'] })
+      }
+      // Only once the dependency is allowed does pnpm reach the plugin's own
+      // `prepare`, which is the refusal it could not have reported first.
+      if (calls.length === 2) return Promise.resolve({ code: 1, log: refusalLog() })
+      return Promise.resolve({ code: 0, log: [] })
+    }
+    const sink = collector()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: '/tmp/home', launcher: () => '/bin/dsh', run },
+      sink.onChange,
+    )
+    installer.install('@x/omdsh-a', 'github:o/omdsh-a')
+    await installer.drain()
+
+    expect(calls).toHaveLength(3)
+    const written = readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')
+    expect(written).toContain("'node-pty': true")
+    expect(written).toContain(`'${REFUSAL_KEY}': true`)
+    expect(sink.states.at(-1)?.status).toBe('ok')
+  })
+
+  it('retries once and reports a second refusal rather than looping', async () => {
+    const dir = scratch()
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), TEMPLATE)
+    const calls: string[][] = []
+    const run: RunCommand = (command, args) => {
+      calls.push([command, ...args])
+      return Promise.resolve({ code: 1, log: refusalLog() })
+    }
+    const sink = collector()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: '/tmp/home', launcher: () => '/bin/dsh', run },
+      sink.onChange,
+    )
+    installer.install('@x/omdsh-a', 'github:o/omdsh-a')
+    await installer.drain()
+
+    // The second refusal names a key the file now holds, so `allowBuild`
+    // answers false and there is nothing left to try.
+    expect(calls).toHaveLength(2)
+    expect(sink.states.at(-1)?.status).toBe('failed')
+  })
+
+  it('does not retry a failure that was not the build refusal', async () => {
+    const dir = scratch()
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), TEMPLATE)
+    const run = stubRunner(1, ['[ERR_PNPM_FETCH_404] Not Found'])
+    const sink = collector()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: '/tmp/home', launcher: () => '/bin/dsh', run },
+      sink.onChange,
+    )
+    installer.install('@x/omdsh-a', 'github:o/omdsh-a')
+    await installer.drain()
+
+    expect(run.calls).toHaveLength(1)
+    expect(sink.states.at(-1)?.status).toBe('failed')
   })
 
   it('allowlists a git install before running it', async () => {
