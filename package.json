@@ -62,9 +62,7 @@
     }
   },
   "files": [
-    "lib/index.js",
-    "lib/client.js",
-    "lib/contract.js",
+    "lib/*.js",
     "lib/types/**/*.d.ts",
     "cordis.patch.yml",
     "src/**/*.ts",
