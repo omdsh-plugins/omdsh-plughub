@@ -42,10 +42,10 @@
  * ### Two refusals, and one this cannot answer
  *
  * A plugin's own `prepare` is one of them. The other is a DEPENDENCY that
- * builds itself — `omdsh-sidepanel` and `omdsh-code` pull in `node-pty` — which
- * pnpm blocks under `ERR_PNPM_IGNORED_BUILDS` and allows on the bare name.
- * Both are read from one failure, so a plugin that trips both costs one retry
- * rather than two.
+ * builds itself — `omdsh-sidepanel` and `omdsh-codemode` pull in `node-pty` —
+ * which pnpm blocks under `ERR_PNPM_IGNORED_BUILDS` and allows on the bare
+ * name. Both are read from one failure, so a plugin that trips both costs one
+ * retry rather than two.
  *
  * Neither reaches a refusal from INSIDE a git plugin's build. Preparing a
  * git-hosted package runs `pnpm install` in a directory under pnpm's store to
@@ -346,11 +346,11 @@ export function gitBuildKey(log: readonly string[]): string | undefined {
  * The dependencies pnpm skipped the build scripts of.
  *
  * A plugin can depend on a package that builds itself — `omdsh-sidepanel` and
- * `omdsh-code` both pull in `node-pty` — and pnpm blocks those the same way it
- * blocks a git plugin's own `prepare`, under a different error and a different
- * key. Here the key is the bare NAME: pnpm prints `name@version` and allows on
- * the name, so the version is dropped. Scoped names carry an `@` of their own,
- * which is why the split is on the LAST one.
+ * `omdsh-codemode` both pull in `node-pty` — and pnpm blocks those the same way
+ * it blocks a git plugin's own `prepare`, under a different error and a
+ * different key. Here the key is the bare NAME: pnpm prints `name@version` and
+ * allows on the name, so the version is dropped. Scoped names carry an `@` of
+ * their own, which is why the split is on the LAST one.
  * @param log - the failed command's captured output.
  * @returns the package names, or none when this failure was not that refusal.
  */
