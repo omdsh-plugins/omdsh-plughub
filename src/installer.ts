@@ -458,6 +458,44 @@ export const runCommand: RunCommand = (command, args, options) => new Promise((r
   child.on('close', (code) => { resolveRun({ code: code ?? 1, log: boundLog(chunks) }) })
 })
 
+/**
+ * The specifier an UPDATE runs against.
+ *
+ * `pnpm add <name>` on a dependency the manifest already satisfies is a no-op:
+ * pnpm answers "Already up to date", changes nothing, and exits zero — so the
+ * operation is reported as successful and the card still offers the update it
+ * just appeared to perform. A git specifier does not have this problem, because
+ * re-resolving a ref is the whole of what it does.
+ *
+ * So an update names its destination. The catalog already knows it — the card
+ * renders `0.1.3 → 0.2.0` from the same field — and naming it buys two things
+ * beyond correctness: the button installs the version printed above it rather
+ * than whatever `latest` means at the moment it is pressed, and an explicit
+ * version is exempt from pnpm's `minimumReleaseAge`, which otherwise hides a
+ * release for its first day and turns the first press after a publish into
+ * that same silent no-op.
+ *
+ * Left alone: a git specifier, a `link:` or path install (there is nothing to
+ * fetch, and the panel already calls it `linked`), and a specifier that
+ * carries its own range — appending to any of those would corrupt it.
+ * @param spec - the specifier the catalog resolved.
+ * @param version - the version that catalog advertises, when it knows one.
+ * @returns the specifier to hand to `dsh plugin add`.
+ */
+export function updateSpec(spec: string, version?: string): string {
+  if (isGitSpec(spec)) return spec
+  if (spec.startsWith('link:') || spec.startsWith('file:') || spec.startsWith('/') || spec.startsWith('.')) return spec
+  if (/^[A-Za-z]:[\\/]/.test(spec)) return spec
+  // A range is already there when an `@` appears past a scope's leading one.
+  if (spec.lastIndexOf('@') > 0) return spec
+  // Guarded rather than trusted: `version` reaches here from a remote manifest,
+  // and while it is spawned as one argv entry rather than through a shell, a
+  // value carrying whitespace or an `@` would build a specifier that means
+  // something else. `latest` is the honest fallback — still an update, just
+  // not a promised one.
+  return /^[\w][\w.+-]*$/.test(version ?? '') ? `${spec}@${String(version)}` : `${spec}@latest`
+}
+
 /** What the installer needs to do its work. */
 export interface InstallerOptions {
   readonly profileDir: string
@@ -515,17 +553,20 @@ export class Installer {
    * now.
    *
    * There is no separate launcher verb for this, and there does not need to be
-   * — `pnpm add` on a dependency that is already there re-resolves it, which
-   * for a registry specifier means the latest published version and for a git
-   * one means whatever the ref now points at. Distinguishing it from an
-   * install is entirely about how it reads: the button, the log line, and the
+   * — an update is `add` against a specifier that names where it is going. For
+   * a git specifier that is the same specifier, since re-resolving the ref is
+   * what it does; for a registry one it is {@link updateSpec}'s work, because a
+   * bare `pnpm add <name>` on a dependency the manifest already satisfies
+   * changes nothing and says it succeeded. Distinguishing it from an install is
+   * otherwise entirely about how it reads: the button, the log line, and the
    * failure all say "update" because that is what the person asked for.
    * @param name - the package name.
    * @param spec - the specifier the catalog resolved for it.
+   * @param version - the version the catalog advertises, when it knows one.
    * @returns the operation as it stands when accepted.
    */
-  update(name: string, spec: string): OperationState {
-    return this.enqueue('update', name, () => this.add(name, spec))
+  update(name: string, spec: string, version?: string): OperationState {
+    return this.enqueue('update', name, () => this.add(name, updateSpec(spec, version)))
   }
 
   /**

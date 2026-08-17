@@ -129,11 +129,24 @@ than `0.9.0`, and `1.0.0` is newer than `1.0.0-rc.2`).
 | `linked` | the one version | Grey: installed from a directory on this machine, so its files already ARE the source |
 | `unknown` | whatever version is known | Grey: this source publishes no version to compare against |
 
-An update runs the same `dsh plugin add` an install does — `pnpm` re-resolves a
-dependency that is already there, which for a registry specifier means the
-latest published version and for a git one means whatever the ref now points
-at. It is its own route because the preconditions are opposite: an install
-refuses a package the profile has, an update requires it.
+An update runs the same `dsh plugin add` an install does, against a specifier
+that names where it is going. For a git specifier that is the specifier
+unchanged, since re-resolving the ref is the whole of what it does. For a
+registry one the advertised version is appended — `pnpm add @scope/name@0.2.0`
+— because a bare `pnpm add <name>` on a dependency the manifest already
+satisfies prints `Already up to date`, changes nothing, and exits zero: the
+operation would report success while the card went on offering the same update.
+
+Naming the version buys two things past correctness. The button installs the
+version printed above it rather than whatever `latest` means at the moment it
+is pressed; and an explicit version is exempt from pnpm's `minimumReleaseAge`,
+which hides a release for its first day and would otherwise make the first
+press after a publish that same silent no-op. The profile then records the
+exact version rather than a range, which is the honest thing for a manifest
+whose updates are button presses.
+
+It is its own route because the preconditions are opposite: an install refuses
+a package the profile has, an update requires it.
 
 Afterwards the restart banner appears. An update changes no bundle LIST — the
 same package name, different code behind it — so the usual comparison would
@@ -302,6 +315,7 @@ route was:
 ```sh
 omdsh-plughub list                     # what the catalog offers, and what is installed
 omdsh-plughub add omdsh-status         # install one
+omdsh-plughub update omdsh-status      # move it to the version the catalog offers
 omdsh-plughub remove omdsh-status      # and remove it
 ```
 

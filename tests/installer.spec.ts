@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { OperationState } from '../src/contract.ts'
 import {
   allowBuild, blockedBuilds, boundLog, gitBuildKey, ignoredBuildNames, Installer, isLauncherEntry,
-  resolveLauncher, withAllowBuild,
+  resolveLauncher, updateSpec, withAllowBuild,
   withPathPrefix, type RunCommand, type RunningProcess,
 } from '../src/installer.ts'
 
@@ -443,18 +443,20 @@ describe('Installer', () => {
     expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).not.toContain('omdsh-a')
   })
 
-  it('runs the same `add` for an update, and reports it as one', async () => {
+  it('runs `add` for an update, against a specifier that names where it goes', async () => {
     const run = stubRunner()
     const sink = collector()
     const installer = new Installer(
       { profileDir: scratch(), profileName: 'web', home: '/tmp/home', launcher: () => '/bin/dsh', run },
       sink.onChange,
     )
-    installer.update('@x/omdsh-a', '@x/omdsh-a')
+    installer.update('@x/omdsh-a', '@x/omdsh-a', '2.0.0')
     await installer.drain()
-    // There is no separate launcher verb: `pnpm add` on a dependency that is
-    // already there re-resolves it, which is what an update is.
-    expect(run.calls[0]).toEqual(['/bin/dsh', 'plugin', '--profile', 'web', 'add', '@x/omdsh-a'])
+    // There is no separate launcher verb, but there IS a different specifier:
+    // a bare `pnpm add <name>` on a dependency the manifest already satisfies
+    // prints "Already up to date" and changes nothing, so an update that did
+    // not name its destination would report success and move nothing.
+    expect(run.calls[0]).toEqual(['/bin/dsh', 'plugin', '--profile', 'web', 'add', '@x/omdsh-a@2.0.0'])
     // The kind is what makes the button, the log line, and the failure read
     // as "update" rather than as a second install.
     expect(sink.states.map(state => state.kind)).toEqual(['update', 'update'])
@@ -584,5 +586,82 @@ describe('Installer', () => {
     // need a restart.
     expect(run.calls[0]?.[0]).toBe('/bin/first')
     expect(run.calls[1]?.[0]).toBe('/bin/second')
+  })
+})
+
+describe('updateSpec', () => {
+  /**
+   * The bug: `pnpm add <name>` on a dependency the manifest already satisfies
+   * prints "Already up to date", changes nothing, and exits zero — so the hub
+   * reported an update as successful while the card went on offering it.
+   * Measured against pnpm 11.20 with a profile holding 0.1.1 and a registry
+   * offering 0.1.3.
+   */
+  it('names the advertised version for a registry specifier', () => {
+    expect(updateSpec('@omdsh-plugins/omdsh-plughub', '0.2.0')).toBe('@omdsh-plugins/omdsh-plughub@0.2.0')
+    expect(updateSpec('omdsh-thing', '1.4.2')).toBe('omdsh-thing@1.4.2')
+  })
+
+  it('falls back to latest when the catalog advertises no version', () => {
+    expect(updateSpec('@omdsh-plugins/omdsh-plughub', undefined)).toBe('@omdsh-plugins/omdsh-plughub@latest')
+  })
+
+  it('leaves a git specifier alone, because re-resolving its ref is the update', () => {
+    expect(updateSpec('github:omdsh-plugins/omdsh-status', '0.1.2')).toBe('github:omdsh-plugins/omdsh-status')
+    expect(updateSpec('https://example.invalid/a.git#main', '1.0.0')).toBe('https://example.invalid/a.git#main')
+  })
+
+  it('leaves a link or a path alone — there is nothing to fetch', () => {
+    expect(updateSpec('link:../omdsh-status', '0.1.2')).toBe('link:../omdsh-status')
+    expect(updateSpec('/checkouts/omdsh-status', '0.1.2')).toBe('/checkouts/omdsh-status')
+    expect(updateSpec('C:\\checkouts\\omdsh-status', '0.1.2')).toBe('C:\\checkouts\\omdsh-status')
+  })
+
+  it('leaves a specifier that already carries a range alone', () => {
+    expect(updateSpec('@omdsh-plugins/omdsh-plughub@0.1.2', '0.2.0')).toBe('@omdsh-plugins/omdsh-plughub@0.1.2')
+    expect(updateSpec('omdsh-thing@^1.0.0', '2.0.0')).toBe('omdsh-thing@^1.0.0')
+  })
+
+  it('refuses a version that would build a different specifier', () => {
+    // `version` arrives from a remote manifest. It is spawned as one argv
+    // entry rather than through a shell, but a value carrying whitespace or a
+    // second `@` would still name something other than what was advertised.
+    for (const bad of ['0.2.0 --registry=evil', '@evil/pkg', '', ' ', '-0.2.0']) {
+      expect(updateSpec('@omdsh-plugins/omdsh-plughub', bad)).toBe('@omdsh-plugins/omdsh-plughub@latest')
+    }
+  })
+})
+
+describe('Installer.update', () => {
+  it('runs add against the version the catalog advertised', async () => {
+    const runs: string[][] = []
+    const run: RunCommand = (_command, args) => {
+      runs.push([...args])
+      return Promise.resolve({ code: 0, log: [] })
+    }
+    const dir = scratch()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: dir, run },
+      () => undefined,
+    )
+    installer.update('@omdsh-plugins/omdsh-plughub', '@omdsh-plugins/omdsh-plughub', '0.2.0')
+    await installer.drain()
+    expect(runs).toEqual([['plugin', '--profile', 'web', 'add', '@omdsh-plugins/omdsh-plughub@0.2.0']])
+  })
+
+  it('leaves a git update as the bare specifier', async () => {
+    const runs: string[][] = []
+    const run: RunCommand = (_command, args) => {
+      runs.push([...args])
+      return Promise.resolve({ code: 0, log: [] })
+    }
+    const dir = scratch()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: dir, run },
+      () => undefined,
+    )
+    installer.update('@omdsh-plugins/omdsh-status', 'github:omdsh-plugins/omdsh-status', '0.1.2')
+    await installer.drain()
+    expect(runs[0]?.at(-1)).toBe('github:omdsh-plugins/omdsh-status')
   })
 })

@@ -545,7 +545,7 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
         })
         return
       }
-      sendJson(res, 202, { operation: ready.installer.update(merged.entry.name, merged.entry.spec) })
+      sendJson(res, 202, { operation: ready.installer.update(merged.entry.name, merged.entry.spec, merged.entry.version) })
     },
   }), 'omdsh-plughub: update route')
 

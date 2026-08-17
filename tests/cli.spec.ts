@@ -74,6 +74,14 @@ describe('parseArgs', () => {
     expect(parseArgs(['list', '--nope'])).toEqual({ usage: 'unknown option --nope' })
     expect(parseArgs(['frobnicate'])).toEqual({ usage: 'unknown command "frobnicate"' })
     expect(parseArgs(['add'])).toEqual({ usage: 'add needs at least one plugin' })
+    expect(parseArgs(['update'])).toEqual({ usage: 'update needs at least one plugin' })
+  })
+
+  it('takes update as a command of its own', () => {
+    const parsed = parseArgs(['update', 'omdsh-status'])
+    if (isUsageError(parsed)) throw new Error(parsed.usage)
+    expect(parsed.command).toBe('update')
+    expect(parsed.targets).toEqual(['omdsh-status'])
   })
 
   it('bounds the numeric flags rather than passing anything through', () => {

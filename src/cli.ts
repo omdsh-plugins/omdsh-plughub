@@ -67,7 +67,7 @@ export const PROGRAM = 'omdsh-plughub'
 const PROFILES_DIR = 'profiles'
 
 /** What the CLI was asked to do. */
-export type Command = 'list' | 'add' | 'remove' | 'help' | 'version'
+export type Command = 'list' | 'add' | 'update' | 'remove' | 'help' | 'version'
 
 /** Everything a run is configured by, after the flags are read. */
 export interface CliOptions {
@@ -196,7 +196,7 @@ export function parseArgs(argv: readonly string[]): Invocation | UsageError {
     }
 
     if (command === undefined) {
-      if (argument === 'list' || argument === 'add' || argument === 'remove' || argument === 'help') {
+      if (argument === 'list' || argument === 'add' || argument === 'update' || argument === 'remove' || argument === 'help') {
         command = argument
         continue
       }
@@ -206,7 +206,7 @@ export function parseArgs(argv: readonly string[]): Invocation | UsageError {
   }
 
   if (command === undefined) return { command: 'help', targets: [], options: defaults() }
-  if ((command === 'add' || command === 'remove') && targets.length === 0) {
+  if ((command === 'add' || command === 'update' || command === 'remove') && targets.length === 0) {
     return { usage: `${command} needs at least one plugin` }
   }
 
@@ -326,6 +326,7 @@ export const HELP = `${PROGRAM} — install omdsh plugins into a dsh profile
 Usage:
   ${PROGRAM} list                       what the catalog offers, and what is installed
   ${PROGRAM} add <plugin…>              install one or more
+  ${PROGRAM} update <plugin…>           move one or more to the version the catalog offers
   ${PROGRAM} remove <plugin…>           remove one or more
 
 A plugin is a package name (@omdsh-plugins/omdsh-status), its last segment
@@ -437,9 +438,9 @@ export async function run(argv: readonly string[], io: Output = stdio): Promise<
     if (operation.status !== 'running') settled.push(operation)
   })
 
-  return parsed.command === 'add'
-    ? addCommand(parsed.targets, catalog, profile, installer, settled, options, io)
-    : removeCommand(parsed.targets, profile, installer, settled, options, io)
+  if (parsed.command === 'add') return addCommand(parsed.targets, catalog, profile, installer, settled, options, io)
+  if (parsed.command === 'update') return updateCommand(parsed.targets, catalog, profile, installer, settled, options, io)
+  return removeCommand(parsed.targets, profile, installer, settled, options, io)
 }
 
 /** `list`: resolve the catalog and print it. */
@@ -491,6 +492,7 @@ async function addCommand(
   /** Every argument resolved before anything is installed, so a typo costs no writes. */
   const planned: { name: string; spec: string }[] = []
   let entries: readonly CatalogEntry[] | undefined
+  const held = new Set(readProfileManifest(profile.dir).bundles)
 
   for (const target of targets) {
     const classified = classifyTarget(target)
@@ -524,6 +526,13 @@ async function addCommand(
       io.err(`${PROGRAM}: ${JSON.stringify(classified.name)} matches ${matched.names.join(', ')} — name one in full`)
       return 1
     }
+    if (held.has(matched.name)) {
+      // Refused rather than run: `pnpm add` on a dependency the manifest
+      // already satisfies changes nothing and reports success, so an `add`
+      // here would be the silent no-op `update` exists to avoid.
+      io.err(`${PROGRAM}: ${matched.name} is already in profile ${profile.name} — \`${PROGRAM} update ${classified.name}\` moves it`)
+      return 1
+    }
     const merged = await catalog.specFor(matched.name)
     if (merged === undefined) {
       io.err(`${PROGRAM}: the catalog offers no plugin named ${JSON.stringify(matched.name)}`)
@@ -542,6 +551,68 @@ async function addCommand(
   }
   await installer.drain()
   return reportOperations(settled, 'installed', options, io)
+}
+
+/** `update`: re-add each installed plugin against the version the catalog offers. */
+async function updateCommand(
+  targets: readonly string[],
+  catalog: Catalog,
+  profile: ResolvedProfile,
+  installer: Installer,
+  settled: OperationState[],
+  options: CliOptions,
+  io: Output,
+): Promise<number> {
+  const held = new Set(readProfileManifest(profile.dir).bundles)
+  const planned: { name: string; spec: string; version?: string | undefined }[] = []
+  let entries: readonly CatalogEntry[] | undefined
+
+  for (const target of targets) {
+    const classified = classifyTarget(target)
+    if (classified.kind !== 'name') {
+      io.err(`${PROGRAM}: update takes a package name, not a specifier — ${JSON.stringify(target)}`)
+      return 2
+    }
+    if (entries === undefined) {
+      try {
+        entries = (await catalog.document(installedFacts(profile))).entries
+      } catch (error) {
+        io.err(`${PROGRAM}: the catalog could not be resolved: ${error instanceof Error ? error.message : String(error)}`)
+        return 1
+      }
+    }
+    const matched = matchName(classified.name, entries.map(entry => entry.name))
+    if (matched.kind === 'none') {
+      io.err(`${PROGRAM}: the catalog offers no plugin named ${JSON.stringify(classified.name)}`)
+      return 1
+    }
+    if (matched.kind === 'many') {
+      io.err(`${PROGRAM}: ${JSON.stringify(classified.name)} matches ${matched.names.join(', ')} — name one in full`)
+      return 1
+    }
+    // Opposite precondition to `add`, and the same reason the routes have two:
+    // updating what the profile does not have is an install wearing the wrong
+    // name.
+    if (!held.has(matched.name)) {
+      io.err(`${PROGRAM}: ${matched.name} is not in profile ${profile.name} — \`${PROGRAM} add ${classified.name}\` installs it`)
+      return 1
+    }
+    const merged = await catalog.specFor(matched.name)
+    if (merged === undefined) {
+      io.err(`${PROGRAM}: the catalog offers no plugin named ${JSON.stringify(matched.name)}`)
+      return 1
+    }
+    planned.push({ name: merged.entry.name, spec: merged.entry.spec, version: merged.entry.version })
+  }
+
+  for (const { name, spec, version } of planned) {
+    if (!options.json) {
+      io.out(`${PROGRAM}: updating ${name}${version === undefined ? '' : ` to ${version}`}`)
+    }
+    installer.update(name, spec, version)
+  }
+  await installer.drain()
+  return reportOperations(settled, 'updated', options, io)
 }
 
 /** `remove`: hand every name to the launcher, which owns the bundle list. */
