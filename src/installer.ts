@@ -33,9 +33,10 @@
  * knowable beforehand without re-implementing pnpm's own resolution, and it
  * changes on every push to the plugin.
  *
- * So the name goes in first, and if pnpm refuses anyway it is asked. Its
- * refusal prints the exact key it wants; {@link blockedBuilds} reads it back,
- * {@link allowBuild} writes it, and the install runs once more. That is one
+ * So the name goes in first — when the caller has one; a bare specifier
+ * installed from a terminal does not — and if pnpm refuses anyway it is asked.
+ * Its refusal prints the exact key it wants; {@link blockedBuilds} reads it
+ * back, {@link allowBuild} writes it, and the install runs once more. That is one
  * retry and never a loop: a second refusal names a key the file already holds,
  * so there is nothing left to write and the failure is reported as it stands.
  *
@@ -61,7 +62,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import type { OperationKind, OperationState } from './contract.ts'
-import { isGitSpec } from './catalog/source.ts'
+import { isGitSpec, isPackageName } from './catalog/source.ts'
 import { resolvePnpmDir } from './pnpm.ts'
 
 /** How many lines of package-manager output one operation keeps. */
@@ -547,7 +548,13 @@ export class Installer {
     // Before the install, never after: a git plugin builds itself in
     // `prepare`, and an unallowlisted `prepare` fails one restart later than
     // the install that skipped it.
-    if (isGitSpec(spec)) allowBuild(this.options.profileDir, name)
+    //
+    // Only when `name` is one: a caller that installs a bare specifier does
+    // not know the package name until the tree is fetched, and the entry this
+    // would write from a specifier is a key pnpm can never match — a line left
+    // in somebody's settings file forever, buying nothing. The retry path
+    // covers that case exactly as it covers a git plugin whose name was right.
+    if (isGitSpec(spec) && isPackageName(name)) allowBuild(this.options.profileDir, name)
     return ['plugin', '--profile', this.options.profileName, 'add', spec]
   }
 

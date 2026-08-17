@@ -58,6 +58,10 @@ import {
   type CatalogDocument, type InstalledDocument, type OperationState, type PlughubEvent,
 } from './contract.ts'
 import { Catalog, catalogOptions, type InstalledFacts } from './catalog/index.ts'
+import {
+  DEFAULT_CACHE_TTL_MS, DEFAULT_MAX_REPOS, DEFAULT_REGISTRY_URL,
+  DEFAULT_TIMEOUT_MS, DEFAULT_UPSTREAM,
+} from './defaults.ts'
 import { Installer } from './installer.ts'
 import {
   describeOwned, ownedNamespaces, readOps, writeOwned, type SettingsSeam,
@@ -110,19 +114,19 @@ export const SETTINGS_NAMESPACE = HUB_SETTINGS_NAMESPACE
  * the browser needs no dictionary of its own for these fields.
  */
 export const Config = Schema.object({
-  upstream: Schema.string().default('omdsh-plugins')
+  upstream: Schema.string().default(DEFAULT_UPSTREAM)
     .description('GitHub account whose repositories are offered when no registry manifest is published. Empty disables enumeration.'),
-  registryUrl: Schema.string().default('')
+  registryUrl: Schema.string().default(DEFAULT_REGISTRY_URL)
     .description('Curated catalog manifest. Empty derives it from the upstream account.'),
   localSources: Schema.array(Schema.string()).default([])
     .description('Directories of plugin checkouts offered as installable entries. Highest precedence.'),
   githubToken: Schema.string().role('secret').default('')
     .description('GitHub token, to lift the 60-requests-per-hour anonymous rate limit on enumeration.'),
-  maxRepos: Schema.number().min(1).max(500).default(100)
+  maxRepos: Schema.number().min(1).max(500).default(DEFAULT_MAX_REPOS)
     .description('Most repositories examined when enumerating the upstream account.'),
-  timeoutMs: Schema.number().min(1000).max(120000).default(10000)
+  timeoutMs: Schema.number().min(1000).max(120000).default(DEFAULT_TIMEOUT_MS)
     .description('Per-request timeout for every remote catalog source, in milliseconds.'),
-  cacheTtlMs: Schema.number().min(0).max(3600000).default(300000)
+  cacheTtlMs: Schema.number().min(0).max(3600000).default(DEFAULT_CACHE_TTL_MS)
     .description('How long a resolved catalog is reused before the sources are consulted again, in milliseconds.'),
   // Hidden from the form, the way `omdsh-shortcuts` hides its `items`: which
   // profile this runtime manages is settled when the plugin mounts — the

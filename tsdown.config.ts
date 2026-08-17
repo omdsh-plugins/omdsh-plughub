@@ -168,4 +168,27 @@ const browserHalf: UserConfig = {
   },
 }
 
-export default defineConfig([nodeHalf, browserHalf])
+/**
+ * The CLI, emitted beside the other two.
+ *
+ * Its own config rather than a third entry on {@link nodeHalf}, because the
+ * hashbang is an output banner and a banner is per-config: on the shared one
+ * it would land at the top of `lib/index.js` too, which the Loader imports.
+ * The cost is that the two artifacts inline their own copy of what they share;
+ * these are node-side pure functions with no runtime identity to keep single,
+ * so a second copy changes nothing but bytes.
+ */
+const cliHalf: UserConfig = {
+  name: `${ID}/cli`,
+  entry: ['lib/types/cli.js'],
+  outDir: 'lib',
+  format: ['esm'],
+  platform: 'node',
+  target: 'es2024',
+  fixedExtension: false,
+  dts: false,
+  clean: false,
+  outputOptions: { banner: '#!/usr/bin/env node' },
+}
+
+export default defineConfig([nodeHalf, browserHalf, cliHalf])

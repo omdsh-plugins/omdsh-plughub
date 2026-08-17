@@ -20,6 +20,7 @@
 | 操作进度与重启提示 | `GET /api/plughub/events`，一条事件流 |
 | `omdsh.plugin.card` slot | `ctx.slots`——通用表单画不出来的控件，插件在这里注册自己的那张脸 |
 | 它自己的 settings 命名空间 `omdsh-plughub` | `ctx.settings.register`，用的就是每个插件都用的那套通用表单 |
+| 终端上的 `omdsh-plughub` | 一个 `bin`，解析的是同一份目录，跑的是路由用的同一个 `Installer` |
 
 这个页面上有两个字符串指向这个包，中文里写法相同，英文里差一个字母，而这个差别
 出自约定而不是疏忽。页签叫 **插件中心**（英文 **Plugin hub**）：它属于设置界面的
@@ -252,6 +253,47 @@ owner/repo/tar.gz/<sha>`——而且拒绝任何别的写法，所以那条提�
 操作串行执行：同一个目录里两个 `pnpm` 会抢同一把 lockfile，输的那个给出的报
 错描述的是这场竞争，而不是人做错了什么。
 
+## 同样的安装，在终端里
+
+这个包带一个 `bin`。它就是上面那条安装路径，只是入口从路由换成了 argv：
+
+```sh
+omdsh-plughub list                     # 目录里有什么，已经装了什么
+omdsh-plughub add omdsh-status         # 装一个
+omdsh-plughub remove omdsh-status      # 卸一个
+```
+
+它存在的理由就是上一节。这套集合里十二个插件有十个不在 npm 上，而不在 npm 上的
+插件就没有一条能用的 `dsh plugin add`——pnpm 要的那个 allowlist key 里带着它解析
+出来的 commit，只能从报错里抄，事先写不出来。这个包一直知道该怎么应付，只是在此
+之前它只应答一个按钮。
+
+这里没有第二套实现。命令解析的是同一份目录，从里面取出同一个 specifier，交给同一
+个 `Installer`——所以从终端装上的插件和从页签装上的插件，是同一条依赖、同一行
+bundle、同一次重启。
+
+### 是名字，还是 specifier
+
+一个参数属于哪一种，决定了要不要去查目录；也正是这一点，让你能点名某一个账号，而
+不必把整份目录搬过去：
+
+| 你敲的 | 它装的 |
+|---|---|
+| `omdsh-status` | 目录里名字以这一段结尾的那个条目；匹配到两个会如实报出来，而不是替你猜 |
+| `@omdsh-plugins/omdsh-status` | 就是那个条目，点名点全 |
+| `github:someone/omdsh-status` | 就那个仓库，照字面装，完全不查目录 |
+| `@omdsh-plugins/omdsh-status@0.1.2` | 同上，并锁到某个版本 |
+| `/checkouts/omdsh-status` | 同上，从一份 checkout 装——这里允许，而路由里拒绝，这正是 `isInstallableSpec` 的 `allowPath` 一直以来的用途：一条在键盘上敲出来的路径，和一条从别人清单里送进来的路径，不是一回事 |
+
+`--upstream <账号>` 把整份目录挪到另一个账号上，只对这一次运行有效。这是同一个问
+题的另一半——参数说的是**取什么**，upstream 说的是**目录去哪儿找**——也正因为如
+此，一个光秃秃的名字不必自己去背一个账号。
+
+**它不读这个插件存下来的设置。** 一个命名空间是由 harness 的 settings 服务在一棵
+运行中的树里解析的，而这个程序不是那样一棵树，所以 `--upstream`、
+`--github-token`、`--registry-url` 和几个超时都是命令行参数，默认值与 schema 里
+声明的那一套相同。`--help` 会把它们列出来。
+
 ## 表单会画哪些控件
 
 | schema 节点 | 控件 |
@@ -319,13 +361,21 @@ dsh plugin --profile web add @omdsh-plugins/omdsh-plughub
 dsh web
 ```
 
-然后打开 **设置 → 插件 → OMDSH 插件**，集合里其余插件已经列在那里了——上游账号
+然后打开 **设置 → 插件 → 插件中心**，集合里其余插件已经列在那里了——上游账号
 是默认值，所以需要在终端里装的只有这一个插件。也可以按插件中心自己在卡片上用的
 写法，直接从账号装一个发布版：
 
 ```sh
 dsh plugin --profile web add github:omdsh-plugins/omdsh-plughub
 ```
+
+这一条**第一次跑一定失败**，而且失败的是 pnpm，不是这个包：git 依赖靠 `prepare`
+自建，而 pnpm ≥10 在包进入 `allowBuilds` 之前不会跑任何这类脚本。pnpm 和 `dsh`
+都会把该往 `$DSH_HOME/profiles/web/pnpm-workspace.yaml` 里加的那一条打印出来，
+而它是完整的 specifier——`'@omdsh-plugins/omdsh-plughub@https://codeload.github.com/…/<sha>': true`
+——不是包名；一旦有过一次被拒绝的尝试，光写包名就不够了。上面那条 npm 写法完全
+不需要这些，**通过**插件中心装的东西也不需要：这个包在跑安装之前会自己把那一条
+写好，这就是按一个按钮和粘一段 YAML 的区别。
 
 或者从一份 checkout 装，改插件中心本身时要的就是这种：
 
@@ -336,6 +386,22 @@ dsh plugin --profile web add /path/to/omdsh-plughub
 
 想让本地 checkout 和上游并列出现，把 `localSources` 设成放它们的目录；同名包下，
 checkout 胜过任何已发布的版本。
+
+### `omdsh-plughub` 这条命令从哪儿来
+
+`bin` 是随这个包一起发的，所以把它装进一个 profile，命令会落在那个 profile 的
+`node_modules/.bin` 里——你 `PATH` 上的任何东西都找不到它，下面第一种写法就是为
+这个准备的：
+
+```sh
+npx @omdsh-plugins/omdsh-plughub add omdsh-status          # 什么都不用先装
+npm install -g @omdsh-plugins/omdsh-plughub                # 然后：omdsh-plughub add …
+"$DSH_HOME"/profiles/web/node_modules/.bin/omdsh-plughub add omdsh-status
+```
+
+三种写法跑的是同一个程序、对着同一个 profile：它读的是 `$DSH_HOME` 和
+`--profile`，而不是自己是被怎么启动的，所以二进制来自哪里，从不改变它写进哪个
+profile。
 
 移除也是同一种写法：
 
@@ -355,7 +421,7 @@ dsh plugin --profile web remove @omdsh-plugins/omdsh-plughub
 
 ```sh
 pnpm install
-pnpm run build       # tsc → lib/types，再 tsdown → lib/{index,contract,client}.js
+pnpm run build       # tsc → lib/types，再 tsdown → lib/{index,contract,client,cli}.js
 pnpm test
 pnpm run typecheck
 pnpm run harness:local ../../deepseek-harness   # 对着一份 checkout 编译

@@ -22,6 +22,7 @@ by hand. This makes both a page.
 | Operation progress and the restart banner | `GET /api/plughub/events`, an event stream |
 | The `omdsh.plugin.card` slot | `ctx.slots`, where a plugin whose control the generic form cannot draw registers its own face |
 | Its own settings namespace, `omdsh-plughub` | `ctx.settings.register`, rendered by the same generic form every other plugin gets |
+| `omdsh-plughub` on a terminal | A `bin`, resolving the same catalog and running the same `Installer` the routes do |
 
 Two strings name this package on that page, one word apart, and the difference
 is a convention rather than an accident. The tab reads **Plugin hub**: it is
@@ -293,6 +294,52 @@ Operations run one at a time: two `pnpm` runs in one directory race over the
 same lockfile, and the loser's diagnostic describes the race rather than
 anything the person did.
 
+## The same installs, on a terminal
+
+This package ships a `bin`. It is the tab's install path with argv where the
+route was:
+
+```sh
+omdsh-plughub list                     # what the catalog offers, and what is installed
+omdsh-plughub add omdsh-status         # install one
+omdsh-plughub remove omdsh-status      # and remove it
+```
+
+It exists because of the paragraph above. Ten of the twelve plugins in this
+collection are not on npm, and a plugin that is not on npm has no working
+`dsh plugin add` line — the allowlist key pnpm demands carries the commit it
+resolved, so it can be copied out of a failure and never written down in
+advance. This package has always known how to answer that, and until now it
+answered only to a button.
+
+Nothing here is a second implementation. The command resolves the same catalog,
+takes the same specifier out of it, and hands it to the same `Installer` — so a
+plugin installed from a terminal and one installed from the tab are the same
+dependency, the same bundle row, and the same restart.
+
+### A name, or a specifier
+
+Which of the two an argument is decides whether the catalog is consulted at all,
+and it is what lets one account be named without moving the catalog:
+
+| What you type | What it installs |
+|---|---|
+| `omdsh-status` | the catalog entry whose name ends in that segment; two matches is reported rather than guessed |
+| `@omdsh-plugins/omdsh-status` | that entry, named exactly |
+| `github:someone/omdsh-status` | that repository, as written, without consulting the catalog at all |
+| `@omdsh-plugins/omdsh-status@0.1.2` | the same, pinned to a version |
+| `/checkouts/omdsh-status` | the same, from a checkout — admissible here and refused in a route, which is what `isInstallableSpec`'s `allowPath` has always been for: a path typed at a keyboard is not a path arriving inside somebody's manifest |
+
+`--upstream <account>` moves the whole catalog to another account for one run.
+That is the other half of the same question — an argument says WHAT to take, the
+upstream says WHERE the catalog looks — and it is why a bare name does not try
+to carry an account of its own.
+
+**It does not read this plugin's stored settings.** A namespace is resolved by
+the harness's settings service inside a running tree, and this program is not
+one, so `--upstream`, `--github-token`, `--registry-url` and the timeouts are
+flags with the same defaults the schema declares. `--help` lists them.
+
 ## Which controls the form draws
 
 | Schema node | Control |
@@ -368,7 +415,7 @@ dsh plugin --profile web add @omdsh-plugins/omdsh-plughub
 dsh web
 ```
 
-Then **Settings → Plugins → OMDSH Plugins**, where the rest of the collection is
+Then **Settings → Plugins → Plugin hub**, where the rest of the collection is
 already listed — the upstream account is the default, so this is the only plugin
 that has to be installed from a terminal. A release can equally be named the way
 the hub names one on a card, straight from the account:
@@ -376,6 +423,16 @@ the hub names one on a card, straight from the account:
 ```sh
 dsh plugin --profile web add github:omdsh-plugins/omdsh-plughub
 ```
+
+That one **fails on the first run**, and the failure is pnpm's rather than
+this package's: a git dependency builds through `prepare`, and pnpm ≥10 runs
+no such script until the package is in `allowBuilds`. Both pnpm and `dsh`
+print the entry to add to `$DSH_HOME/profiles/web/pnpm-workspace.yaml`, and it
+is the whole specifier — `'@omdsh-plugins/omdsh-plughub@https://codeload.github.com/…/<sha>': true`
+— rather than the package name, which is not enough once an attempt has been
+refused. The npm form above needs none of this, and neither does anything
+installed *through* the hub: this package writes that entry itself before it
+runs an install, which is the difference between a button and a paste.
 
 Or from a checkout, when you are working on the hub itself:
 
@@ -387,6 +444,22 @@ dsh plugin --profile web add /path/to/omdsh-plughub
 To offer your local checkouts alongside the upstream, set `localSources` to the
 directory holding them; a checkout wins over anything published under the same
 package name.
+
+### Where the `omdsh-plughub` command comes from
+
+The `bin` ships with this package, so installing it into a profile puts it in
+that profile's `node_modules/.bin` — where nothing on your `PATH` will find it,
+which is what the first form below is for:
+
+```sh
+npx @omdsh-plugins/omdsh-plughub add omdsh-status          # nothing installed
+npm install -g @omdsh-plugins/omdsh-plughub                # then: omdsh-plughub add …
+"$DSH_HOME"/profiles/web/node_modules/.bin/omdsh-plughub add omdsh-status
+```
+
+All three run the same program against the same profile: it reads `$DSH_HOME`
+and `--profile` rather than anything about how it was started, so where the
+binary came from never changes which profile it writes to.
 
 Remove it the same way:
 
@@ -409,7 +482,7 @@ nothing to configure.
 
 ```sh
 pnpm install
-pnpm run build       # tsc → lib/types, then tsdown → lib/{index,contract,client}.js
+pnpm run build       # tsc → lib/types, then tsdown → lib/{index,contract,client,cli}.js
 pnpm test
 pnpm run typecheck
 pnpm run harness:local ../../deepseek-harness   # build against a checkout
