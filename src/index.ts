@@ -113,20 +113,44 @@ export const SETTINGS_NAMESPACE = HUB_SETTINGS_NAMESPACE
  * asking of others what it does not do. Every description is localized here so
  * the browser needs no dictionary of its own for these fields.
  */
+/**
+ * One field's title, in both languages.
+ *
+ * This panel titles a control from `meta.extra.label` when a schema wrote one
+ * and from the property name when it did not — and a property name is an
+ * English identifier, which is how a form in Chinese ends up half translated.
+ * The plugin that renders the form is held to its own convention here. A field
+ * that also carries a role declares the same map THROUGH the role:
+ * `role(text, extra)` writes this slot too, and writes `undefined` into it when
+ * called with one argument.
+ * @param en - the English title.
+ * @param zh - the Chinese title.
+ * @returns the metadata payload the form reads.
+ */
+function label(en: string, zh: string): { label: Record<string, string> } {
+  return { label: { '': en, zh } }
+}
+
 export const Config = Schema.object({
   upstream: Schema.string().default(DEFAULT_UPSTREAM)
+    .extra('extra', label('Upstream account', '上游账号'))
     .description('GitHub account whose repositories are offered when no registry manifest is published. Empty disables enumeration.'),
   registryUrl: Schema.string().default(DEFAULT_REGISTRY_URL)
+    .extra('extra', label('Registry manifest', '插件清单地址'))
     .description('Curated catalog manifest. Empty derives it from the upstream account.'),
   localSources: Schema.array(Schema.string()).default([])
+    .extra('extra', label('Local checkouts', '本地插件目录'))
     .description('Directories of plugin checkouts offered as installable entries. Highest precedence.'),
-  githubToken: Schema.string().role('secret').default('')
+  githubToken: Schema.string().role('secret', label('GitHub token', 'GitHub 令牌')).default('')
     .description('GitHub token, to lift the 60-requests-per-hour anonymous rate limit on enumeration.'),
   maxRepos: Schema.number().min(1).max(500).default(DEFAULT_MAX_REPOS)
+    .extra('extra', label('Repositories examined', '枚举仓库上限'))
     .description('Most repositories examined when enumerating the upstream account.'),
   timeoutMs: Schema.number().min(1000).max(120000).default(DEFAULT_TIMEOUT_MS)
+    .extra('extra', label('Request timeout', '请求超时'))
     .description('Per-request timeout for every remote catalog source, in milliseconds.'),
   cacheTtlMs: Schema.number().min(0).max(3600000).default(DEFAULT_CACHE_TTL_MS)
+    .extra('extra', label('Catalog cache', '目录缓存时长'))
     .description('How long a resolved catalog is reused before the sources are consulted again, in milliseconds.'),
   // Hidden from the form, the way `omdsh-shortcuts` hides its `items`: which
   // profile this runtime manages is settled when the plugin mounts — the
@@ -136,8 +160,10 @@ export const Config = Schema.object({
   profileDir: Schema.string().default('').hidden()
     .description('Profile directory to manage, read once where this plugin is composed. Empty derives it from the profile this runtime booted from.'),
   launcher: Schema.string().default('')
+    .extra('extra', label('dsh launcher', 'dsh 可执行文件'))
     .description('Path to the dsh launcher used for installs. Empty resolves it from the running runtime, then PATH.'),
   pnpmPath: Schema.string().default('')
+    .extra('extra', label('pnpm executable', 'pnpm 可执行文件'))
     .description('Path to the pnpm executable the launcher shells out to. Empty searches the runtime, the profile, and the usual install locations.'),
 }).i18n({
   zh: {

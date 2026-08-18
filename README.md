@@ -386,6 +386,25 @@ and the schema's description goes underneath it. Schemastery descriptions are
 sentences, and a sentence makes a poor label; this way a schema author writes
 one thing and it lands where it reads well.
 
+A property name is also an English identifier, which is how a form rendered in
+Chinese comes out half translated. So a schema may write its own title, in
+`meta.extra` — schemastery's own slot for form-renderer metadata — as the same
+locale map a localized description uses:
+
+```ts
+Schema.string().extra('extra', { label: { '': 'Model route', zh: '模型路由' } })
+Schema.string().role('secret', { label: { '': 'API key', zh: '密钥' } })
+```
+
+The second spelling is not decoration: `role(text, extra)` writes that same
+slot, and writes `undefined` into it when called with one argument, so a field
+carrying a role declares its title THROUGH the role. A declared title also
+brings the property name back as a code chip beside it, which is what somebody
+editing the settings document needs. Every plugin in this collection that owns
+a namespace declares its titles this way, including the fields below — a form
+renderer that left its own panel half translated would be arguing against
+itself.
+
 ## Configuring it
 
 This plugin follows its own conventions, so it configures itself in its own

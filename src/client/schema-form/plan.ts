@@ -43,6 +43,8 @@ export interface SchemaNodeLike {
     readonly description?: LocalizedText
     readonly comment?: string
     readonly role?: string
+    /** schemastery's open metadata slot; {@link declaredLabel} is what this reads from it. */
+    readonly extra?: unknown
     readonly hidden?: boolean
     readonly disabled?: boolean
     readonly required?: boolean
@@ -94,13 +96,15 @@ export interface FieldNode {
   readonly depth: number
   readonly kind: FieldKind
   /**
-   * The field's title.
+   * The field's title: the label the schema declared, or the property name.
    *
-   * Derived from the property name, NOT from the schema's description: a
-   * schemastery description is a sentence ("GitHub account whose repositories
-   * are offered when no registry manifest is published"), and a sentence makes
-   * a poor label. The sentence goes to {@link FieldNode.description}, under
-   * the control, which is where the harness's own settings rows put theirs.
+   * Never the description. A schemastery description is a sentence ("GitHub
+   * account whose repositories are offered when no registry manifest is
+   * published"), and a sentence makes a poor label; it goes to
+   * {@link FieldNode.description}, under the control, which is where the
+   * harness's own settings rows put theirs. What a schema CAN say is a title
+   * of its own — see {@link declaredLabel}, which is the only way a form in
+   * Chinese gets Chinese titles.
    */
   readonly label: string
   /** The property name verbatim, so a person can find the field in the document. */
@@ -185,10 +189,48 @@ export function classify(node: SchemaNodeLike, locale: string): { kind: FieldKin
 }
 
 /**
+ * The title a schema wrote for one of its own fields, when it wrote one.
+ *
+ * schemastery has no label slot: `description` is a sentence and `comment` is
+ * an aside, and `.i18n()` translates only the first of them. So a form built
+ * from a schema alone titles every field in English — the property name is an
+ * English identifier — and a page in Chinese comes out half translated.
+ *
+ * `meta.extra` is schemastery's own "arbitrary metadata consumed by form
+ * renderers", which is exactly this, and it is serialized with the rest of the
+ * node. A schema declares a title there as a locale map, the same shape a
+ * localized description already uses:
+ *
+ * ```ts
+ * Schema.string().extra('extra', { label: { '': 'Model route', zh: '模型路由' } })
+ * Schema.string().role('secret', { label: { '': 'API key', zh: '密钥' } })
+ * ```
+ *
+ * The second spelling is not a variant for its own sake: `role(text, extra)`
+ * WRITES this slot, and writes `undefined` into it when called with one
+ * argument, so a field that carries a role has to declare its title through
+ * the role or lose it to whichever call came last.
+ *
+ * Anything else found in the slot is somebody else's role metadata, so this
+ * reads defensively and falls back to the property name.
+ * @param node - the schema node.
+ * @param locale - the active locale id.
+ * @returns the resolved title, or undefined when the schema declared none.
+ */
+function declaredLabel(node: SchemaNodeLike, locale: string): string | undefined {
+  const extra = node.meta?.extra
+  if (typeof extra !== 'object' || extra === null) return undefined
+  const label = (extra as { label?: unknown }).label
+  if (typeof label === 'string') return label === '' ? undefined : label
+  if (typeof label !== 'object' || label === null || Array.isArray(label)) return undefined
+  return resolveText(label as Record<string, string>, locale)
+}
+
+/**
  * A property name as a title: `maxRepos` → `Max repos`, `upstream` →
- * `Upstream`. Mechanical on purpose — a schema author who wants different
- * words has the description for them, and a rule a reader can predict beats
- * one that is occasionally cleverer.
+ * `Upstream`. Mechanical on purpose — a rule a reader can predict beats one
+ * that is occasionally cleverer, and this is the fallback under
+ * {@link declaredLabel} rather than a guess at what the author meant.
  * @param key - the property name.
  * @returns the title.
  */
@@ -217,7 +259,7 @@ function toField(
     path,
     depth,
     kind,
-    label: titleForKey(key),
+    label: declaredLabel(node, locale) ?? titleForKey(key),
     key,
     ...description === undefined ? {} : { description },
     ...meta?.comment === undefined || meta.comment === '' ? {} : { comment: meta.comment },
@@ -272,7 +314,7 @@ export function planSection(root: SchemaNodeLike | undefined, locale: string): P
           node: 'group',
           path: childPath,
           depth,
-          label: titleForKey(key),
+          label: declaredLabel(child, locale) ?? titleForKey(key),
           key,
           ...resolveText(child.meta?.description, locale) === undefined
             ? {}

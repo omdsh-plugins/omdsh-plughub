@@ -95,6 +95,35 @@ describe('planSection', () => {
     expect(titleForKey('')).toBe('')
   })
 
+  it('prefers a title the schema declared for itself, in the active locale', () => {
+    // Without this a form built from a schema alone titles every field with an
+    // English identifier, and a page in Chinese comes out half translated.
+    const dict = {
+      provider: { type: 'string', meta: { extra: { label: { '': 'Model route', zh: '模型路由' } } } },
+      apiKey: { type: 'string', meta: { role: 'secret', extra: { label: { '': 'API key', zh: '密钥' } } } },
+    }
+    expect(planSection(object(dict), 'zh').map(node => node.label)).toEqual(['模型路由', '密钥'])
+    expect(planSection(object(dict), 'en').map(node => node.label)).toEqual(['Model route', 'API key'])
+  })
+
+  it('falls back to the property name when the extra slot holds anything else', () => {
+    // `role(text, extra)` writes the same slot, so whatever a role put there is
+    // read defensively rather than rendered as a title.
+    const plan = planSection(object({
+      upstream: { type: 'string', meta: { extra: { filter: 'llm' } } },
+      maxRepos: { type: 'number', meta: { extra: 'llm' } },
+      verbose: { type: 'boolean', meta: { extra: { label: '' } } },
+    }), 'zh')
+    expect(plan.map(node => node.label)).toEqual(['Upstream', 'Max repos', 'Verbose'])
+  })
+
+  it('titles a group the same way', () => {
+    const plan = planSection(object({
+      retry: object({ attempts: { type: 'number' } }, { extra: { label: { zh: '重试' } } }),
+    }), 'zh')
+    expect(plan[0]).toMatchObject({ node: 'group', label: '重试' })
+  })
+
   it('resolves a localized description for the active locale', () => {
     const dict = { upstream: { type: 'string', meta: { description: { '': 'Account', zh: '账号' } } } }
     expect(planSection(object(dict), 'zh')[0]?.description).toBe('账号')
