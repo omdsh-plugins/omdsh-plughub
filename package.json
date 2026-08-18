@@ -1,7 +1,7 @@
 {
   "name": "@omdsh-plugins/omdsh-plughub",
   "description": "The omdsh plugin hub: a Settings tab that installs and removes omdsh plugins from a configurable upstream, and configures every installed one from the settings schema it already registers",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -53,11 +53,11 @@
     "plughub": {
       "displayName": {
         "": "Plugin Hub",
-        "zh": "\u63d2\u4ef6\u4e2d\u5fc3"
+        "zh": "插件中心"
       },
       "summary": {
         "": "Install, remove, and configure omdsh plugins from inside Settings.",
-        "zh": "\u5728\u8bbe\u7f6e\u91cc\u5b89\u88c5\u3001\u5378\u8f7d\u5e76\u914d\u7f6e omdsh \u63d2\u4ef6\u3002"
+        "zh": "在设置里安装、卸载并配置 omdsh 插件。"
       },
       "category": "system",
       "settings": [
