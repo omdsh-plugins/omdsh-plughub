@@ -24,7 +24,7 @@ export const en = {
 
   catalogHeading: 'Available',
   catalogEmpty: 'No plugins were offered by the configured sources.',
-  catalogEmptySearch: 'No plugin matches this search.',
+  catalogEmptySearch: 'No available plugin matches this search.',
   search: 'Search plugins',
   refresh: 'Refresh',
   loading: 'Loading…',
@@ -64,6 +64,7 @@ export const en = {
 
   installedHeading: 'Installed',
   installedEmpty: 'This profile has no removable plugins yet.',
+  installedEmptySearch: 'No installed plugin matches this search.',
   builtIn: 'built in',
   noSettings: 'This plugin declares nothing to configure.',
   readOnlyProvider: 'Settings are read-only in this deployment.',
@@ -88,7 +89,7 @@ export const zh: Record<PlughubLocaleKey, string> = {
 
   catalogHeading: '可安装',
   catalogEmpty: '配置的来源没有提供任何插件。',
-  catalogEmptySearch: '没有匹配的插件。',
+  catalogEmptySearch: '没有匹配的可安装插件。',
   search: '搜索插件',
   refresh: '刷新',
   loading: '加载中…',
@@ -128,6 +129,7 @@ export const zh: Record<PlughubLocaleKey, string> = {
 
   installedHeading: '已安装',
   installedEmpty: '这个 profile 还没有可卸载的插件。',
+  installedEmptySearch: '没有匹配的已安装插件。',
   builtIn: '内置',
   noSettings: '这个插件没有声明可配置项。',
   readOnlyProvider: '当前部署的设置为只读。',

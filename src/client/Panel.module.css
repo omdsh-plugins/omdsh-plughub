@@ -13,8 +13,7 @@
 .sectionHead {
   display: flex;
   align-items: center;
-  /* Wraps rather than crushing the search field, for a narrow settings panel
-     or a long translated heading. */
+  /* Wraps rather than crushing Refresh against a long translated heading. */
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -35,25 +34,19 @@
 
 .sectionHead > :last-child { margin-left: auto; }
 
-/* Takes the gap the heading row already had between the count and Refresh,
-   which is what lets the search share that row instead of adding one. Growing
-   to fill it also leaves `.sectionHead > :last-child`'s auto margin nothing to
-   push with, so Refresh stays where it was. */
-.search {
-  flex: 1 1 auto;
-  min-width: 0;
+/* Between the sources region and the two lists it filters. Centred and
+   bounded so a wide settings panel does not stretch one field across it.
+   The Input's own wrapper is the label's last child — the only other one
+   is the visually-hidden text, first and out of flow. Two selectors deep
+   on purpose: this overrides a width the Input primitive sets on a single
+   class, and the two stylesheets are injected independently. */
+.searchBar {
   display: flex;
   justify-content: center;
+  min-width: 0;
 }
 
-/* The Input's own wrapper, which is the label's last child — the only other
-   one is the visually-hidden text, and it is first and out of flow.
-   Deliberately two selectors deep: this overrides a width the Input primitive
-   sets on a single class, and the two stylesheets are injected independently,
-   so equal specificity would leave the winner up to injection order. Bounded
-   so a wide panel does not stretch one field across it, and centred by the
-   flex container in whatever is left. */
-.search > :last-child {
+.searchBar > :last-child {
   width: 100%;
   max-width: 340px;
 }

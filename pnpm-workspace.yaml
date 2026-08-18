@@ -10,3 +10,8 @@ allowBuilds:
   # A transitive dependency of the build toolchain (tsdown/tsx). Its install
   # script fetches the platform esbuild binary.
   esbuild: true
+
+# Every harness package is pinned to one release this plugin chooses
+# deliberately, so pnpm's release-age gate has nothing left to protect and its
+# generated per-package exclusion list would only churn on every bump.
+minimumReleaseAge: 0

@@ -17,8 +17,8 @@
  * written back to ITS namespace; this half contributes the rendering and
  * nothing else, which is what makes the panel work for a plugin published
  * after it. The schema arrives over this plugin's own host routes rather than
- * the harness's `settings.describe` — see `../settings-gateway.ts` for the
- * allowlist that forces that detour.
+ * the harness's `settings.describe` — see `../settings-gateway.ts` for why
+ * this tab cannot be the official Configurable one.
  *
  * It imposes nothing on a plugin's own words: a card title renders in the case
  * its author wrote (`resolveTitle`), and a plugin that declared none is titled
@@ -59,11 +59,10 @@ export {
   applyEvent, operationFor, parseEvent, followOperations,
   fetchCatalog, fetchInstalled, requestInstall, requestUninstall, requestUpdate, HubError,
 } from './hub-source.ts'
-export { matches } from './CatalogSection.tsx'
 export { compareVersions, isLinkedSpec, parseVersion, updateStateFor, versionLabel } from '../version.ts'
 export { SourcesSection } from './SourcesSection.tsx'
 export type { SourcesSectionProps } from './SourcesSection.tsx'
-export { resolveText, resolveTextOr, resolveTitle, shortName } from './text.ts'
+export { compareByTitle, matches, resolveText, resolveTextOr, resolveTitle, shortName } from './text.ts'
 export { classify, planSection, isEditable, getPath, isOverridden } from './schema-form/plan.ts'
 export type { FieldKind, FieldNode, GroupNode, PlanNode, SchemaNodeLike } from './schema-form/plan.ts'
 

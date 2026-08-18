@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { IconWarningOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconSearchOutline16, IconWarningOutline16, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { HUB_SETTINGS_NAMESPACE } from '../contract.ts'
@@ -123,6 +123,9 @@ export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
   const [state, setState] = useState<ViewState>({ status: 'loading' })
   const [operations, setOperations] = useState<readonly OperationState[]>([])
   const [restartRequired, setRestartRequired] = useState(false)
+  // One needle for Available and Installed. Owned here because neither
+  // region can filter the other, and a field that lived under one heading
+  // would read as searching only that heading.
   const [query, setQuery] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState<string | undefined>(undefined)
@@ -308,13 +311,27 @@ export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
         onSet={onSourceSet}
         onUnset={onSourceUnset}
       />
+      {/* One field, both lists. A plugin that is only on the profile — a
+          built-in bundle, a checkout the catalog never offered — is still
+          findable, and a name typed here is not lost when the eye moves
+          from Available to Installed. */}
+      <label className={css.searchBar}>
+        <span className={css.visuallyHidden}>{translate('search')}</span>
+        <Input
+          type="search"
+          icon={<IconSearchOutline16 aria-hidden="true" />}
+          value={query}
+          placeholder={translate('search')}
+          aria-label={translate('search')}
+          onChange={(event) => { setQuery(event.currentTarget.value) }}
+        />
+      </label>
       <CatalogSection
         entries={data.catalog.entries}
         sources={data.catalog.sources}
         locale={active}
         t={translate}
         query={query}
-        onQuery={setQuery}
         onRefresh={onRefresh}
         refreshing={refreshing}
         writable={canWrite}
@@ -327,6 +344,7 @@ export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
         entries={data.installed.entries}
         locale={active}
         t={translate}
+        query={query}
         labels={labels}
         writable={data.settings.writable}
         namespacesFor={(entry: InstalledEntry) => namespacesFor(entry.metadata.settings, data.settings)}

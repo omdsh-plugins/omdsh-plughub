@@ -62,25 +62,19 @@ harness 让第二种答案成为可能，因为它本来就有一条 user-settin
 
 ### 中间那一列，以及它为什么在
 
-那一步本该完全不存在。harness 本来就把同一条缝直接发布给浏览器，这个中心也
-本该直接用——但 `settings.describe` 和 `settings.mutate` 被
-`dsh-host-apiproxy` 里一张**写死的命名空间名单**挡住了。它自己的注释说得很
-清楚：
+那一步曾经必须存在：harness 自己的 settings 线路被一张写死的命名空间名单挡住，
+任何 out-of-tree 插件都过不去。`0.1.0-rc.7` 把那道闸拆了：Host 现在会把每一个
+已注册的命名空间都送到浏览器，想在官方「可配置」页签上放一张卡片的插件，往
+`settings.plugin.item` 里注册一张即可。
 
-> adding a section to that page is a decision made here rather than by the
-> registering plugin. Moving that declaration to `settings.register()`, so a
-> plugin can expose its own configuration without a change in this package, is
-> deferred work.
-
-任何 out-of-tree 的命名空间都进不了那张名单，所以建立在它之上的插件中心，只
-能配置 harness 早就认识的那些插件——而这恰恰是这个插件中心存在的意义的反面。
-于是它用自己的一条路由把这条缝转运了一遍。
+这条路由还在，是因为另一件事。官方页签只渲染认领了那个槽位的命名空间；这个中
+心是从每个 omdsh 插件已经注册好的 schema 画出一张通用表单，包括那些从没写过
+卡片的。而且它画出的边界比 Host 的更窄——一个命名空间只有在某个**已安装**的
+bundle 用 `dsh.plughub.settings` 声明了它时才可达，所以同一个进程里注册着的
+`shell` 和 `agent-loop` 在这里够不到。
 
 它只承担传输，别的什么都不做：校验、分层、脱敏、并发冲突、提交，全都还在
-`ctx.settings` 里。而且它画出的边界比它所替代的那条**更窄**——一个命名空间只
-有在某个**已安装**的 bundle 用 `dsh.plughub.settings` 声明了它时才可达，所以
-同一个进程里注册着的 `shell` 和 `agent-loop` 在这里够不到。等上游把那件
-deferred work 做完，这条路由就是多余的，可以直接删掉，而不必碰任何一个插件。
+`ctx.settings` 里。
 
 ## 这个页签里有什么
 

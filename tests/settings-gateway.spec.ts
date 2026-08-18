@@ -1,12 +1,12 @@
 /**
  * The settings gateway.
  *
- * This module exists because the harness's own settings wire is gated by a
- * hard-coded allowlist that no out-of-tree namespace can be in. It therefore
- * carries a boundary of its own, and that boundary is the thing most worth
- * pinning: a namespace is reachable ONLY when an installed bundle declares it.
- * `shell` and `agent-loop` are registered in the same process and must not be
- * reachable through here.
+ * This module exists because the hub configures every omdsh plugin from the
+ * schema it already registered, not only those that claimed an official
+ * settings card. It therefore carries a boundary of its own, and that
+ * boundary is the thing most worth pinning: a namespace is reachable ONLY
+ * when an installed bundle declares it. `shell` and `agent-loop` are
+ * registered in the same process and must not be reachable through here.
  */
 
 import { describe, expect, it, vi } from 'vitest'

@@ -18,11 +18,12 @@
  * composition-base layer, secret redaction, revision conflicts, and hot
  * commits all stay in `ctx.settings`, and this reads what that already
  * computed. It would rather not carry them at all: the harness publishes the
- * same seam to the browser, and this hub would simply use it if it could. It
- * cannot, because that wire is gated by a hard-coded allowlist of namespace
- * NAMES that no out-of-tree plugin can be in. `settings-gateway.ts` has the
- * whole story; the short version is that one route stands in for one gate,
- * and everything on either side of it is the harness's.
+ * same seam to the browser, and since 0.1.0-rc.7 every registered namespace
+ * crosses that wire. The official Configurable tab still only renders
+ * namespaces that claimed `settings.plugin.item`, so this hub keeps its own
+ * route: a generic form from the schema every omdsh plugin already registered,
+ * including ones that never wrote a card. `settings-gateway.ts` has the whole
+ * story; everything on either side of that route is the harness's.
  *
  * It also registers its OWN namespace, so this plugin is configurable in its
  * own panel by the same convention it asks of everyone else. The panel draws

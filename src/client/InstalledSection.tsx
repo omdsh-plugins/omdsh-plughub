@@ -16,7 +16,7 @@ import { useState, type ReactNode } from 'react'
 import { IconChevronDownOutline14, IconSettingsOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InstalledEntry, SettingsNamespaceView } from '../contract.ts'
 import { SchemaForm, type SchemaFormLabels } from './schema-form/SchemaForm.tsx'
-import { resolveText, resolveTitle } from './text.ts'
+import { compareByTitle, matches, resolveText, resolveTitle } from './text.ts'
 import type { Translate } from './CatalogSection.tsx'
 import css from './Panel.module.css'
 
@@ -25,6 +25,8 @@ export interface InstalledSectionProps {
   readonly entries: readonly InstalledEntry[]
   readonly locale: string
   readonly t: Translate
+  /** The tab's search needle; the same one Available filters by. */
+  readonly query: string
   readonly labels: SchemaFormLabels
   /** Whether the settings provider accepts writes. */
   readonly writable: boolean
@@ -126,17 +128,23 @@ function InstalledCard({
  * @returns the region.
  */
 export function InstalledSection(props: InstalledSectionProps): ReactNode {
-  const { entries, locale, t } = props
+  const { entries, locale, t, query } = props
+  const needle = query.trim().toLocaleLowerCase()
+  const visible = entries
+    .filter(entry => matches(entry, needle, locale))
+    .sort((a, b) => compareByTitle(a, b, locale))
   return (
     <section className={css.section}>
       <div className={css.sectionHead}>
         <h3 className={css.sectionTitle}>{t('installedHeading')}</h3>
-        <span className={css.count} data-installed-count={entries.length}>{entries.length}</span>
+        <span className={css.count} data-installed-count={visible.length}>{visible.length}</span>
       </div>
       {props.notice === undefined ? null : <p className={css.sourceFailure} role="alert">{props.notice}</p>}
-      {entries.length === 0 ? <p className={css.status}>{t('installedEmpty')}</p> : (
+      {entries.length === 0 ? <p className={css.status}>{t('installedEmpty')}</p> : null}
+      {entries.length > 0 && visible.length === 0 ? <p className={css.status}>{t('installedEmptySearch')}</p> : null}
+      {visible.length === 0 ? null : (
         <ul className={css.cards}>
-          {entries.map(entry => (
+          {visible.map(entry => (
             <InstalledCard
               key={entry.name}
               entry={entry}

@@ -93,3 +93,59 @@ export function resolveTitle(
 ): string {
   return resolveText(displayName, locale) ?? shortName(packageName)
 }
+
+/**
+ * The fields a search looks at, and that a list sorts by. Catalog and
+ * installed cards share them, so one needle finds a plugin in whichever list
+ * it lives — including a built-in bundle the catalog never offered — and both
+ * lists order by the same title.
+ */
+export interface SearchablePlugin {
+  readonly name: string
+  readonly description?: string
+  readonly repo?: string
+  readonly metadata: {
+    readonly displayName?: LocalizedText
+    readonly summary?: LocalizedText
+    readonly category?: string
+  }
+}
+
+/**
+ * Compare two plugins by the title on their card.
+ *
+ * The lists a person reads are ordered by that title, not by `dsh.plughub.order`
+ * and not by package name: `order` is a catalog-merge concern, and a package
+ * name is what you type, not what the card says. Case-insensitive, in the
+ * locale on screen, so a language switch reorders the same cards. Package
+ * name breaks a tie so two plugins with the same title stay stable.
+ * @param a - one card.
+ * @param b - the other.
+ * @param locale - the active locale id.
+ * @returns negative when `a` sorts first.
+ */
+export function compareByTitle(a: SearchablePlugin, b: SearchablePlugin, locale: string): number {
+  const byTitle = resolveTitle(a.metadata.displayName, locale, a.name)
+    .localeCompare(resolveTitle(b.metadata.displayName, locale, b.name), locale, { sensitivity: 'base' })
+  return byTitle !== 0 ? byTitle : a.name.localeCompare(b.name)
+}
+
+/**
+ * Whether one plugin matches a search.
+ * @param entry - a catalog or installed card.
+ * @param needle - the normalized query.
+ * @param locale - the active locale, so a search matches what is on screen.
+ * @returns true when the entry matches.
+ */
+export function matches(entry: SearchablePlugin, needle: string, locale: string): boolean {
+  if (needle === '') return true
+  const haystack = [
+    entry.name,
+    entry.repo,
+    entry.description,
+    resolveText(entry.metadata.displayName, locale),
+    resolveText(entry.metadata.summary, locale),
+    entry.metadata.category,
+  ]
+  return haystack.some(value => value !== undefined && value.toLocaleLowerCase().includes(needle))
+}

@@ -11,13 +11,13 @@
 import { useState, type ReactNode } from 'react'
 import {
   Button, IconDownloadOutline16, IconLinkOutline14, IconRefreshOutline16,
-  IconSearchOutline16, IconTrashOutline16, Input,
+  IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   CatalogEntry, CatalogSource, CatalogSourceReport, OperationKind, OperationState, UpdateState,
 } from '../contract.ts'
 import { versionLabel } from '../version.ts'
-import { resolveText, resolveTitle } from './text.ts'
+import { compareByTitle, matches, resolveText, resolveTitle } from './text.ts'
 import type { PlughubLocaleKey } from './locales.ts'
 import css from './Panel.module.css'
 
@@ -30,8 +30,8 @@ export interface CatalogSectionProps {
   readonly sources: readonly CatalogSourceReport[]
   readonly locale: string
   readonly t: Translate
+  /** The tab's search needle; filters this list and the installed list together. */
   readonly query: string
-  readonly onQuery: (query: string) => void
   readonly onRefresh: () => void
   readonly refreshing: boolean
   /** Whether writes are reachable from this browser at all (loopback-only routes). */
@@ -62,26 +62,6 @@ const UPDATE_KEY: Record<UpdateState, PlughubLocaleKey> = {
   current: 'updateCurrent',
   linked: 'updateLinked',
   unknown: 'updateUnknown',
-}
-
-/**
- * Whether one entry matches a search.
- * @param entry - the catalog entry.
- * @param needle - the normalized query.
- * @param locale - the active locale, so a search matches what is on screen.
- * @returns true when the entry matches.
- */
-export function matches(entry: CatalogEntry, needle: string, locale: string): boolean {
-  if (needle === '') return true
-  const haystack = [
-    entry.name,
-    entry.repo,
-    entry.description,
-    resolveText(entry.metadata.displayName, locale),
-    resolveText(entry.metadata.summary, locale),
-    entry.metadata.category,
-  ]
-  return haystack.some(value => value !== undefined && value.toLocaleLowerCase().includes(needle))
 }
 
 /** One plugin's card. */
@@ -199,27 +179,15 @@ function CatalogCard({
 export function CatalogSection(props: CatalogSectionProps): ReactNode {
   const { entries, sources, locale, t, query } = props
   const needle = query.trim().toLocaleLowerCase()
-  const visible = entries.filter(entry => matches(entry, needle, locale))
+  const visible = entries
+    .filter(entry => matches(entry, needle, locale))
+    .sort((a, b) => compareByTitle(a, b, locale))
   const broken = sources.filter(source => !source.ok)
   return (
     <section className={css.section}>
       <div className={css.sectionHead}>
         <h3 className={css.sectionTitle}>{t('catalogHeading')}</h3>
         <span className={css.count} data-catalog-count={visible.length}>{visible.length}</span>
-        {/* In the head's own gap rather than on a row below it. The heading
-            row was mostly empty and so was the row under it, and a search
-            field belongs beside the count it filters anyway. */}
-        <label className={css.search}>
-          <span className={css.visuallyHidden}>{t('search')}</span>
-          <Input
-            type="search"
-            icon={<IconSearchOutline16 aria-hidden="true" />}
-            value={query}
-            placeholder={t('search')}
-            aria-label={t('search')}
-            onChange={(event) => { props.onQuery(event.currentTarget.value) }}
-          />
-        </label>
         <Button
           variant="ghost"
           size="sm"

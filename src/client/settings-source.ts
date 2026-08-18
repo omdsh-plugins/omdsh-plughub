@@ -8,9 +8,10 @@
  * bookkeeping a form needs on top.
  *
  * The route is this plugin's rather than the harness's `settings.describe`
- * for the reason spelled out on {@link SETTINGS_PATH}: that wire is gated by a
- * hard-coded allowlist of namespace names, so no out-of-tree plugin's
- * namespace can cross it. Everything else about the flow is identical.
+ * for the reason spelled out on {@link SETTINGS_PATH}: the official
+ * Configurable tab only renders namespaces that claimed a card, and this
+ * hub configures every omdsh plugin from the schema it already registered.
+ * Everything else about the flow is identical.
  * @module @omdsh-plugins/omdsh-plughub/client/settings-source
  */
 

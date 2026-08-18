@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
-  CatalogEntry, OperationState, PlughubEvent, SettingsNamespaceView,
+  CatalogEntry, InstalledEntry, OperationState, PlughubEvent, SettingsNamespaceView,
 } from '../src/contract.ts'
 import { EMPTY_METADATA, SETTINGS_PATH, UPDATE_PATH } from '../src/contract.ts'
 import { applyEvent, operationFor, parseEvent, requestUpdate } from '../src/client/hub-source.ts'
@@ -15,7 +15,10 @@ import {
   EMPTY_SETTINGS, describeSettings, isSecretSet, mutateSetting, namespacesFor,
   type SettingsSnapshot,
 } from '../src/client/settings-source.ts'
-import { resolveText, resolveTextOr, resolveTitle, shortName } from '../src/client/text.ts'
+import {
+  compareByTitle, matches, resolveText, resolveTextOr, resolveTitle, shortName,
+  type SearchablePlugin,
+} from '../src/client/text.ts'
 import { versionLabel } from '../src/version.ts'
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -106,6 +109,114 @@ describe('resolveTitle', () => {
     // dotted I, say — can render one reader's title differently from another's.
     expect(resolveTitle({ '': 'Installer' }, 'tr', '@x/omdsh-a')).toBe('Installer')
     expect(resolveTitle({ '': 'Installer' }, 'en', '@x/omdsh-a')).toBe('Installer')
+  })
+})
+
+describe('matches', () => {
+  const catalog = (overrides: Partial<CatalogEntry> = {}): CatalogEntry => ({
+    name: '@omdsh-plugins/omdsh-shortcuts',
+    source: 'registry',
+    metadata: EMPTY_METADATA,
+    installed: false,
+    ...overrides,
+  })
+
+  const installed = (overrides: Partial<InstalledEntry> = {}): InstalledEntry => ({
+    name: '@deepseek-ai/dsh-web-app',
+    metadata: EMPTY_METADATA,
+    removable: false,
+    ...overrides,
+  })
+
+  it('is inclusive when the needle is empty', () => {
+    expect(matches(catalog(), '', 'en')).toBe(true)
+    expect(matches(installed(), '', 'zh')).toBe(true)
+  })
+
+  it('finds a catalog entry by the fields the card shows', () => {
+    const entry = catalog({
+      repo: 'omdsh-plugins/omdsh-shortcuts',
+      description: 'Keyboard chords.',
+      metadata: {
+        ...EMPTY_METADATA,
+        displayName: { '': 'Shortcuts', zh: '快捷键' },
+        summary: { '': 'One chord per command.' },
+        category: 'input',
+      },
+    })
+    expect(matches(entry, 'shortcuts', 'en')).toBe(true)
+    expect(matches(entry, 'keyboard', 'en')).toBe(true)
+    expect(matches(entry, 'input', 'en')).toBe(true)
+    expect(matches(entry, 'omdsh-plugins/omdsh-shortcuts', 'en')).toBe(true)
+    expect(matches(entry, 'vision', 'en')).toBe(false)
+  })
+
+  it('finds an installed plugin the catalog never offered', () => {
+    // Built-in surface bundles live in Installed and not in Available. The
+    // needle is the tab's, so they have to answer it too.
+    const entry = installed({
+      description: 'The web GUI.',
+      metadata: { ...EMPTY_METADATA, displayName: { '': 'Web App' }, category: 'system' },
+    })
+    expect(matches(entry, 'web-app', 'en')).toBe(true)
+    expect(matches(entry, 'web gui', 'en')).toBe(true)
+    expect(matches(entry, 'system', 'en')).toBe(true)
+    expect(matches(entry, 'shortcuts', 'en')).toBe(false)
+  })
+
+  it('matches the locale on screen', () => {
+    const entry = catalog({
+      metadata: { ...EMPTY_METADATA, displayName: { '': 'Shortcuts', zh: '快捷键' } },
+    })
+    expect(matches(entry, '快捷键', 'zh')).toBe(true)
+    expect(matches(entry, '快捷键', 'en')).toBe(false)
+    expect(matches(entry, 'shortcuts', 'en')).toBe(true)
+  })
+})
+
+describe('compareByTitle', () => {
+  const card = (
+    name: string,
+    displayName?: CatalogEntry['metadata']['displayName'],
+  ): SearchablePlugin => ({
+    name,
+    metadata: displayName === undefined ? EMPTY_METADATA : { displayName },
+  })
+
+  it('orders by the title on the card, not by package name', () => {
+    const zebra = card('@z/omdsh-zebra', { '': 'Zebra' })
+    const apple = card('@a/omdsh-apple', { '': 'Apple' })
+    const mango = card('@m/omdsh-mango', { '': 'Mango' })
+    const sorted = [zebra, apple, mango].sort((a, b) => compareByTitle(a, b, 'en'))
+    expect(sorted.map(entry => entry.name)).toEqual(['@a/omdsh-apple', '@m/omdsh-mango', '@z/omdsh-zebra'])
+  })
+
+  it('ignores case, so Title Case does not float above a lowercase title', () => {
+    const beta = card('@x/omdsh-b', { '': 'Beta' })
+    const alpha = card('@x/omdsh-a', { '': 'alpha' })
+    const sorted = [beta, alpha].sort((a, b) => compareByTitle(a, b, 'en'))
+    expect(sorted.map(entry => entry.name)).toEqual(['@x/omdsh-a', '@x/omdsh-b'])
+  })
+
+  it('falls back to the shortened package name when no display name was declared', () => {
+    const usage = card('@x/omdsh-usage', { '': 'Usage' })
+    const unnamed = card('@x/omdsh-sidechat', undefined)
+    const sorted = [usage, unnamed].sort((a, b) => compareByTitle(a, b, 'en'))
+    expect(sorted.map(entry => entry.name)).toEqual(['@x/omdsh-sidechat', '@x/omdsh-usage'])
+  })
+
+  it('breaks a tie on package name', () => {
+    const a = card('@x/omdsh-a', { '': 'Same' })
+    const b = card('@x/omdsh-b', { '': 'Same' })
+    expect(compareByTitle(a, b, 'en')).toBeLessThan(0)
+    expect(compareByTitle(b, a, 'en')).toBeGreaterThan(0)
+  })
+
+  it('reorders when the locale on screen changes the title', () => {
+    const apple = card('@x/omdsh-a', { '': 'Zebra', zh: '苹果' })
+    const banana = card('@x/omdsh-b', { '': 'Apple', zh: '香蕉' })
+    expect(compareByTitle(apple, banana, 'en')).toBeGreaterThan(0)
+    expect(compareByTitle(apple, banana, 'zh')).toBeLessThan(0)
   })
 })
 

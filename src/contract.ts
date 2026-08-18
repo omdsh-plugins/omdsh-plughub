@@ -43,27 +43,21 @@ export const EVENTS_PATH = `${ROUTE_PREFIX}/events`
  *
  * ## Why this is not the harness's `settings.describe`
  *
- * It ought to be. The Host settings seam is exactly the right source, and the
- * harness already publishes it to the browser — but behind a hard-coded
- * allowlist of namespace names in `dsh-host-apiproxy`, and its own comment
- * says so plainly: "adding a section to that page is a decision made here
- * rather than by the registering plugin. Moving that declaration to
- * `settings.register()`, so a plugin can expose its own configuration without
- * a change in this package, is deferred work."
- *
- * Until that deferred work lands, no out-of-tree plugin's namespace can cross
- * that boundary, and this hub's whole premise — a plugin becomes configurable
- * by registering a schema, with no change anywhere else — would be false.
+ * It ought to be. The Host settings seam is exactly the right source, and
+ * since 0.1.0-rc.7 the harness publishes every registered namespace to the
+ * browser. The official Configurable tab, however, only renders namespaces
+ * that claimed `settings.plugin.item` — a card each plugin has to write.
+ * This hub's premise is the opposite: a plugin becomes configurable by
+ * registering a schema, with no change anywhere else.
  *
  * So this half of the transport is ours and the rest is not: plugins still
  * register ordinary settings namespaces, the Host seam still owns validation,
  * layering, redaction, revisions, and commits, and this route only carries
- * what that seam already computed. If the harness later moves the declaration
- * to `settings.register()`, this route becomes redundant and deletable
- * without touching a single plugin.
+ * what that seam already computed. The official card slot is still there for
+ * a plugin that needs a control the generic form cannot draw.
  *
- * The boundary this route draws is NARROWER than the one it stands in for: a
- * namespace is reachable only when an installed bundle declares it under
+ * The boundary this route draws is NARROWER than the Host's: a namespace is
+ * reachable only when an installed bundle declares it under
  * `dsh.plughub.settings`. Ownership is the allowlist, exactly as the catalog
  * is the allowlist for installs.
  */

@@ -70,27 +70,22 @@ mentions chords.
 
 ### The middle column, and why it is there
 
-That middle step ought to be nothing at all. The harness publishes the same
-seam straight to the browser, and this hub would use it — except that
-`settings.describe` and `settings.mutate` are gated by a hard-coded allowlist
-of namespace NAMES in `dsh-host-apiproxy`. Its own comment is unambiguous:
+That middle step used to exist because the harness's own settings wire was
+gated by a hard-coded allowlist of namespace names, so no out-of-tree plugin
+could cross it. `0.1.0-rc.7` lifted that gate: the Host now serves every
+registered namespace, and a plugin that wants a card on the official
+Configurable tab registers one into `settings.plugin.item`.
 
-> adding a section to that page is a decision made here rather than by the
-> registering plugin. Moving that declaration to `settings.register()`, so a
-> plugin can expose its own configuration without a change in this package, is
-> deferred work.
-
-No out-of-tree namespace can be in that list, so a hub built on it could
-configure only the plugins the harness already knew about — the one thing this
-hub exists not to be. It therefore carries the seam over a route of its own.
+This route is still here for a different reason. The official tab only renders
+namespaces that claimed that slot; this hub draws a generic form from the
+schema every omdsh plugin already registers, including ones that never wrote a
+card. And the boundary it draws is narrower than the Host's — a namespace is
+reachable only when an INSTALLED bundle declares it under
+`dsh.plughub.settings`, so `shell` and `agent-loop` are registered in the same
+process and unreachable here.
 
 It carries transport and nothing else: validation, layering, redaction,
-revisions, and commits all stay in `ctx.settings`. And the boundary it draws is
-narrower than the one it stands in for — a namespace is reachable only when an
-INSTALLED bundle declares it under `dsh.plughub.settings`, so `shell` and
-`agent-loop` are registered in the same process and unreachable here. When that
-deferred work lands upstream, this route becomes redundant and deletable
-without touching a single plugin.
+revisions, and commits all stay in `ctx.settings`.
 
 ## What the tab shows
 

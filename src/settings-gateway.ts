@@ -4,14 +4,13 @@
  * ## Why this module exists at all
  *
  * The harness already publishes the settings seam to the browser, and this
- * hub would rather use it. It cannot: `settings.describe` and
- * `settings.mutate` are gated by a hard-coded allowlist of namespace NAMES in
- * `dsh-host-apiproxy`, whose own comment says the decision "is made here
- * rather than by the registering plugin", and that moving it to
- * `settings.register()` "is deferred work". No out-of-tree namespace crosses
- * that boundary, so a hub built on it would be a hub that can configure only
- * the plugins the harness already knew about — which is the one thing this
- * hub exists not to be.
+ * hub would rather use it. It does not: as of 0.1.0-rc.7 the Host serves
+ * every registered namespace, but the official Configurable tab only renders
+ * ones that claimed `settings.plugin.item`, and this hub exists to configure
+ * every omdsh plugin from the schema it already registered — including ones
+ * that never wrote a card. A hub built on the official tab would configure
+ * only the plugins that shipped a card, which is the one thing this hub
+ * exists not to be.
  *
  * ## What it does and does not own
  *
