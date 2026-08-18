@@ -1,7 +1,7 @@
 {
   "name": "@omdsh-plugins/omdsh-plughub",
   "description": "The omdsh plugin hub: a Settings tab that installs, disables and configures omdsh plugins from a configurable upstream, from the settings schema each already registers",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "license": "MIT",
   "repository": {
