@@ -75,6 +75,18 @@ describe('parseArgs', () => {
     expect(parseArgs(['frobnicate'])).toEqual({ usage: 'unknown command "frobnicate"' })
     expect(parseArgs(['add'])).toEqual({ usage: 'add needs at least one plugin' })
     expect(parseArgs(['update'])).toEqual({ usage: 'update needs at least one plugin' })
+    expect(parseArgs(['enable'])).toEqual({ usage: 'enable needs at least one plugin' })
+    expect(parseArgs(['disable'])).toEqual({ usage: 'disable needs at least one plugin' })
+  })
+
+  it('takes enable and disable as commands of their own', () => {
+    const enabled = parseArgs(['enable', 'omdsh-status'])
+    if (isUsageError(enabled)) throw new Error(enabled.usage)
+    expect(enabled.command).toBe('enable')
+    expect(enabled.targets).toEqual(['omdsh-status'])
+    const disabled = parseArgs(['disable', 'omdsh-status'])
+    if (isUsageError(disabled)) throw new Error(disabled.usage)
+    expect(disabled.command).toBe('disable')
   })
 
   it('takes update as a command of its own', () => {

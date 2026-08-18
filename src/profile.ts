@@ -27,11 +27,11 @@
  * @module @omdsh-plugins/omdsh-plughub/profile
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { EMPTY_METADATA, type InstalledEntry } from './contract.ts'
+import { EMPTY_METADATA, HUB_PACKAGE_NAME, type InstalledEntry } from './contract.ts'
 import { readManifest, type ManifestFacts } from './manifest.ts'
 
 /** Directory under the Harness home holding every profile, as the launcher names it. */
@@ -64,6 +64,14 @@ export function resolveHome(env: Record<string, string | undefined> = process.en
 export interface ProfileManifest {
   readonly dependencies?: Readonly<Record<string, string>>
   readonly bundles: readonly string[]
+  /**
+   * Dependency-managed plugins taken off the composed stack on purpose.
+   * They stay in `dependencies` (and in `node_modules`); Enable writes them
+   * back onto {@link bundles}. `dsh plugin` reconciliation will put a name
+   * back on `bundles` the next time it runs, which is why {@link applyDisabled}
+   * exists.
+   */
+  readonly disabled: readonly string[]
 }
 
 /** One located profile. */
@@ -121,7 +129,7 @@ export function isProfileDirectory(dir: string): boolean {
  */
 export function readProfileManifest(dir: string): ProfileManifest {
   const manifest = readJson(join(dir, 'package.json'))
-  if (!isRecord(manifest)) return { bundles: [] }
+  if (!isRecord(manifest)) return { bundles: [], disabled: [] }
   const dependencies = isRecord(manifest['dependencies'])
     ? Object.fromEntries(
       Object.entries(manifest['dependencies']).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
@@ -130,8 +138,10 @@ export function readProfileManifest(dir: string): ProfileManifest {
   const dsh = manifest['dsh']
   const profile = isRecord(dsh) ? dsh['profile'] : undefined
   const declared = isRecord(profile) ? profile['bundles'] : undefined
-  const bundles = Array.isArray(declared) ? declared.filter((name): name is string => typeof name === 'string') : []
-  return { ...dependencies === undefined ? {} : { dependencies }, bundles }
+  const bundles = Array.isArray(declared) ? uniqueStrings(declared) : []
+  const parked = isRecord(profile) ? profile['disabled'] : undefined
+  const disabled = Array.isArray(parked) ? uniqueStrings(parked) : []
+  return { ...dependencies === undefined ? {} : { dependencies }, bundles, disabled }
 }
 
 /**
@@ -239,29 +249,70 @@ export function readInstalledManifest(profileDir: string, packageName: string): 
 }
 
 /**
- * Project the profile's composed bundles into what the panel shows.
+ * What the panel may do to one installed name.
  *
- * A bundle is REMOVABLE exactly when it is a dependency: `pnpm remove` acts on
- * dependencies, and the profile template's own bundles (`dsh-base` and
- * friends) are not dependencies at all — they came with the profile and a
- * profile without them is not one. That is the same rule `dsh plugin`'s own
- * reconciliation uses, from the other direction.
+ * The hub is the one plugin that installs the rest, so it cannot leave the
+ * machine and cannot leave the composed stack — Remove would leave no way to
+ * put anything back, including itself, and Disable would hide the only UI
+ * that puts plugins on. Update is the one write it still accepts. Every
+ * other plugin is removable and toggleable exactly when it is a dependency;
+ * a template bundle is neither.
+ * @param name - the package name.
+ * @param dependencies - the profile's dependency names.
+ * @returns the two flags the panel reads.
+ */
+export function pluginActions(
+  name: string,
+  dependencies: ReadonlySet<string>,
+): { readonly removable: boolean; readonly toggleable: boolean } {
+  if (name === HUB_PACKAGE_NAME) return { removable: false, toggleable: false }
+  const managed = dependencies.has(name)
+  return { removable: managed, toggleable: managed }
+}
+
+/**
+ * Project the profile's installed plugins into what the panel shows.
+ *
+ * Composed bundles come first, in `dsh.profile.bundles` order; disabled
+ * plugins follow, still listed so Enable has a row to sit on. A bundle is
+ * REMOVABLE exactly when it is a dependency that is not the hub: `pnpm
+ * remove` acts on dependencies, the profile template's own bundles
+ * (`dsh-base` and friends) are not dependencies at all, and the hub must
+ * stay installed so there is still a place that installs plugins.
+ *
+ * Enable/Disable is offered for every removable plugin. A template bundle
+ * cannot leave the stack, and neither can the hub.
  * @param profileDir - the profile directory.
  * @param manifest - the profile manifest.
- * @returns one entry per composed bundle, in `dsh.profile.bundles` order.
+ * @returns one entry per installed plugin.
  */
 export function listInstalled(profileDir: string, manifest: ProfileManifest): InstalledEntry[] {
   const dependencies = new Set(Object.keys(manifest.dependencies ?? {}))
-  return manifest.bundles.map((name) => {
+  const composed = new Set(manifest.bundles)
+  const entries: InstalledEntry[] = []
+  const seen = new Set<string>()
+  const push = (name: string, enabled: boolean): void => {
+    if (seen.has(name)) return
+    seen.add(name)
     const facts = readInstalledManifest(profileDir, name)
-    return {
+    const actions = pluginActions(name, dependencies)
+    entries.push({
       name,
       ...facts?.version === undefined ? {} : { version: facts.version },
       ...facts?.description === undefined ? {} : { description: facts.description },
       metadata: facts?.metadata ?? EMPTY_METADATA,
-      removable: dependencies.has(name),
-    }
-  })
+      removable: actions.removable,
+      enabled,
+      toggleable: actions.toggleable,
+    })
+  }
+  for (const name of manifest.bundles) push(name, !manifest.disabled.includes(name))
+  for (const name of manifest.disabled) {
+    if (composed.has(name)) continue
+    if (!dependencies.has(name) && readInstalledManifest(profileDir, name) === undefined) continue
+    push(name, false)
+  }
+  return entries
 }
 
 /**
@@ -288,4 +339,134 @@ export function listInstalled(profileDir: string, manifest: ProfileManifest): In
 export function isRestartRequired(booted: readonly string[], current: readonly string[]): boolean {
   if (booted.length !== current.length) return true
   return booted.some((name, index) => current[index] !== name)
+}
+
+/** Deduplicate a JSON array, keeping only non-empty strings in first-seen order. */
+function uniqueStrings(values: readonly unknown[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const value of values) {
+    if (typeof value !== 'string' || value === '' || seen.has(value)) continue
+    seen.add(value)
+    out.push(value)
+  }
+  return out
+}
+
+/** What {@link setEnabled} decided. */
+export type SetEnabledResult =
+  | { readonly status: 'ok'; readonly changed: boolean }
+  | { readonly status: 'missing'; readonly error: string }
+  | { readonly status: 'forbidden'; readonly error: string }
+
+/**
+ * Take a dependency-managed plugin off the composed stack, or put it back.
+ *
+ * Disable writes the name onto `dsh.profile.disabled` and takes it off
+ * `dsh.profile.bundles`. The package stays in `dependencies` — Enable is the
+ * inverse, not another install. Template bundles are refused: they are not
+ * dependencies. The hub is refused for both writes: it stays on the stack.
+ * @param profileDir - the profile directory.
+ * @param name - the package name.
+ * @param enabled - the intended composed state.
+ * @returns whether the write happened, or why it did not.
+ */
+export function setEnabled(profileDir: string, name: string, enabled: boolean): SetEnabledResult {
+  const manifest = readProfileManifest(profileDir)
+  const entry = listInstalled(profileDir, manifest).find(candidate => candidate.name === name)
+  if (entry === undefined) {
+    return { status: 'missing', error: `${name} is not installed in this profile` }
+  }
+  if (!entry.toggleable) {
+    return {
+      status: 'forbidden',
+      error: name === HUB_PACKAGE_NAME
+        ? `${name} is the plugin hub and cannot be disabled`
+        : `${name} came with the profile rather than as a dependency, so it cannot be disabled from here`,
+    }
+  }
+  const nextDisabled = enabled
+    ? manifest.disabled.filter(candidate => candidate !== name)
+    : uniqueStrings([...manifest.disabled, name])
+  const nextBundles = enabled
+    ? (manifest.bundles.includes(name) ? [...manifest.bundles] : [...manifest.bundles, name])
+    : manifest.bundles.filter(candidate => candidate !== name)
+  // Compared to the file, not to `entry.enabled`: a name on both lists already
+  // reads as disabled, and a no-op here would leave it on the stack until
+  // the next `applyDisabled`.
+  if (sameStrings(manifest.bundles, nextBundles) && sameStrings(manifest.disabled, nextDisabled)) {
+    return { status: 'ok', changed: false }
+  }
+  writeProfileLayers(profileDir, nextBundles, nextDisabled)
+  return { status: 'ok', changed: true }
+}
+
+/**
+ * Drop a name from the disabled list after it has been uninstalled.
+ *
+ * The files are gone; leaving it parked would list a row with nothing behind
+ * it the next time the panel loads.
+ * @param profileDir - the profile directory.
+ * @param name - the package that was removed.
+ * @returns whether the file changed.
+ */
+export function forgetDisabled(profileDir: string, name: string): boolean {
+  const manifest = readProfileManifest(profileDir)
+  if (!manifest.disabled.includes(name)) return false
+  writeProfileLayers(profileDir, [...manifest.bundles], manifest.disabled.filter(candidate => candidate !== name))
+  return true
+}
+
+/**
+ * Put the disabled list back in charge of `dsh.profile.bundles`.
+ *
+ * `dsh plugin` reconciliation treats every dependency that declares a bundle
+ * patch as a layer that belongs on the stack, so an install or update of
+ * anything else would quietly re-compose every parked plugin. This strips
+ * those names again. Template bundles are never taken off, even if a hand
+ * edit put them on the list. The hub is never parked: a mark left by a
+ * hand edit is dropped, and the name is put back on the stack.
+ * @param profileDir - the profile directory.
+ * @returns whether the file changed.
+ */
+export function applyDisabled(profileDir: string): boolean {
+  const manifest = readProfileManifest(profileDir)
+  const dependencies = new Set(Object.keys(manifest.dependencies ?? {}))
+  const parked = new Set(
+    manifest.disabled.filter(name => name !== HUB_PACKAGE_NAME && dependencies.has(name)),
+  )
+  const nextBundles = manifest.bundles.filter(name => !parked.has(name))
+  if (manifest.disabled.includes(HUB_PACKAGE_NAME) && !nextBundles.includes(HUB_PACKAGE_NAME)) {
+    nextBundles.push(HUB_PACKAGE_NAME)
+  }
+  const nextDisabled = [...parked]
+  if (sameStrings(manifest.bundles, nextBundles) && sameStrings(manifest.disabled, nextDisabled)) return false
+  writeProfileLayers(profileDir, nextBundles, nextDisabled)
+  return true
+}
+
+/** Whether two string lists are the same sequence. */
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+/**
+ * Write `dsh.profile.bundles` and `dsh.profile.disabled` without touching the
+ * rest of the profile manifest — dependencies, scripts, and anything else a
+ * person or `dsh plugin` put there stay put.
+ */
+function writeProfileLayers(profileDir: string, bundles: readonly string[], disabled: readonly string[]): void {
+  const path = join(profileDir, 'package.json')
+  const current = readJson(path)
+  if (!isRecord(current)) {
+    throw new Error(`omdsh-plughub: ${path} is not a JSON object, so the profile layers cannot be written`)
+  }
+  const dsh = isRecord(current['dsh']) ? { ...current['dsh'] } : {}
+  const profile = isRecord(dsh['profile']) ? { ...dsh['profile'] } : {}
+  profile['bundles'] = [...bundles]
+  if (disabled.length === 0) delete profile['disabled']
+  else profile['disabled'] = [...disabled]
+  dsh['profile'] = profile
+  current['dsh'] = dsh
+  writeFileSync(path, `${JSON.stringify(current, undefined, 2)}\n`)
 }

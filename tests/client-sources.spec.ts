@@ -9,10 +9,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   CatalogEntry, InstalledEntry, OperationState, PlughubEvent, SettingsNamespaceView,
 } from '../src/contract.ts'
-import { EMPTY_METADATA, SETTINGS_PATH, UPDATE_PATH } from '../src/contract.ts'
-import { applyEvent, operationFor, parseEvent, requestUpdate } from '../src/client/hub-source.ts'
+import { EMPTY_METADATA, ENABLED_PATH, SETTINGS_PATH, UPDATE_PATH } from '../src/contract.ts'
+import { applyEvent, operationFor, parseEvent, requestSetEnabled, requestUpdate } from '../src/client/hub-source.ts'
 import {
-  EMPTY_SETTINGS, describeSettings, isSecretSet, mutateSetting, namespacesFor,
+  EMPTY_SETTINGS, describeSettings, isFieldOverridden, isSecretSet, mutateSetting, namespacesFor,
   type SettingsSnapshot,
 } from '../src/client/settings-source.ts'
 import {
@@ -125,6 +125,8 @@ describe('matches', () => {
     name: '@deepseek-ai/dsh-web-app',
     metadata: EMPTY_METADATA,
     removable: false,
+    enabled: true,
+    toggleable: false,
     ...overrides,
   })
 
@@ -281,11 +283,34 @@ describe('namespacesFor', () => {
 describe('isSecretSet', () => {
   it('reports whether a redacted slot holds a value', () => {
     const withSecret = view({
-      secrets: [{ path: ['githubToken'], set: true }, { path: ['other'], set: false }],
+      secrets: [
+        { path: ['githubToken'], set: true, overridden: true },
+        { path: ['other'], set: false, overridden: false },
+      ],
     })
     expect(isSecretSet(withSecret, ['githubToken'])).toBe(true)
     expect(isSecretSet(withSecret, ['other'])).toBe(false)
     expect(isSecretSet(withSecret, ['absent'])).toBe(false)
+  })
+})
+
+describe('isFieldOverridden', () => {
+  it('reads ordinary fields from user presence', () => {
+    const current = view({ user: { model: 'gemini' } })
+    expect(isFieldOverridden(current, ['model'])).toBe(true)
+    expect(isFieldOverridden(current, ['apiKey'])).toBe(false)
+  })
+
+  it('reads a secret from the sidecar, because redaction deleted the key', () => {
+    const current = view({
+      user: { model: 'gemini' },
+      secrets: [{ path: ['apiKey'], set: true, overridden: true }],
+    })
+    expect(isFieldOverridden(current, ['apiKey'])).toBe(true)
+    expect(isFieldOverridden(current, ['model'])).toBe(true)
+    expect(isFieldOverridden(view({
+      secrets: [{ path: ['apiKey'], set: true, overridden: false }],
+    }), ['apiKey'])).toBe(false)
   })
 })
 
@@ -361,6 +386,16 @@ describe('requestUpdate', () => {
     // Host re-resolves instead.
     expect(JSON.parse((fetchImpl.mock.calls[0]?.[1] as RequestInit).body as string))
       .toEqual({ name: '@x/omdsh-a' })
+  })
+})
+
+describe('requestSetEnabled', () => {
+  it('names the package and the intended composed state', async () => {
+    const fetchImpl = serving(202, { operation: operation({ kind: 'disable' }) })
+    await requestSetEnabled('@x/omdsh-a', false)
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(ENABLED_PATH)
+    expect(JSON.parse((fetchImpl.mock.calls[0]?.[1] as RequestInit).body as string))
+      .toEqual({ name: '@x/omdsh-a', enabled: false })
   })
 })
 

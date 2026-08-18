@@ -81,6 +81,10 @@
   opacity: 0.75;
 }
 
+.hint strong {
+  font-weight: 600;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;

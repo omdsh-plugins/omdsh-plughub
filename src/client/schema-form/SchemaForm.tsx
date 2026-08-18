@@ -12,9 +12,9 @@
 import { useMemo, type ReactNode } from 'react'
 import { rehydrateSchema } from '@deepseek-ai/dsh-client-schema-form'
 import type { SettingsNamespaceView } from '../../contract.ts'
-import { isSecretSet } from '../settings-source.ts'
+import { isFieldOverridden, isSecretSet } from '../settings-source.ts'
 import { Field, GroupHeading, type FieldLabels } from './Fields.tsx'
-import { getPath, isOverridden, planSection, type PlanNode, type SchemaNodeLike } from './plan.ts'
+import { getPath, planSection, type PlanNode, type SchemaNodeLike } from './plan.ts'
 import css from './SchemaForm.module.css'
 
 /** What the form needs beyond the field labels. */
@@ -85,7 +85,7 @@ export function SchemaForm({ view, locale, writable, labels, onSet, onUnset }: S
             key={key}
             field={entry}
             value={getPath(view.value, entry.path)}
-            overridden={isOverridden(view.user, entry.path)}
+            overridden={isFieldOverridden(view, entry.path)}
             writable={writable}
             secretSet={isSecretSet(view, entry.path)}
             labels={labels}

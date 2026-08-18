@@ -27,7 +27,7 @@
  * @module @omdsh-plugins/omdsh-plughub/version
  */
 
-import type { CatalogEntry, UpdateState } from './contract.ts'
+import type { UpdateState } from './contract.ts'
 
 /** `major.minor.patch`, an optional prerelease, an optional build. */
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/
@@ -164,10 +164,14 @@ export function updateStateFor(
  * Here rather than in the card, so it can be exercised without the browser
  * bundle's component imports — every spec in this package keeps its harness
  * imports type-only, which is what lets a bare clone run them.
- * @param entry - the catalog entry.
+ * @param entry - the catalog (or installed-offer) versions to label.
  * @returns the text, or undefined when no version is known at all.
  */
-export function versionLabel(entry: CatalogEntry): string | undefined {
+export function versionLabel(entry: {
+  readonly update?: UpdateState
+  readonly version?: string
+  readonly installedVersion?: string
+}): string | undefined {
   if (entry.update === 'available' && entry.installedVersion !== undefined && entry.version !== undefined) {
     return `${entry.installedVersion} → ${entry.version}`
   }

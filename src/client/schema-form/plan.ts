@@ -30,6 +30,8 @@
 import type { LocalizedText } from '../../contract.ts'
 import { resolveText } from '../text.ts'
 
+export { getPath, isOverridden } from '../../settings-path.ts'
+
 /**
  * As much of a rehydrated schemastery node as the planner reads.
  *
@@ -340,35 +342,4 @@ export function planSection(root: SchemaNodeLike | undefined, locale: string): P
  */
 export function isEditable(plan: readonly PlanNode[]): boolean {
   return plan.some(entry => entry.node === 'field' && entry.kind !== 'unsupported' && !entry.disabled)
-}
-
-/**
- * Read a nested value by path.
- * @param value - the root value.
- * @param path - key path from the root.
- * @returns the value at the path, or undefined along a missing branch.
- */
-export function getPath(value: unknown, path: readonly string[]): unknown {
-  let current: unknown = value
-  for (const key of path) {
-    if (typeof current !== 'object' || current === null || Array.isArray(current)) return undefined
-    current = (current as Record<string, unknown>)[key]
-  }
-  return current
-}
-
-/**
- * Whether the raw user section carries this path — which is what "overridden"
- * means at the settings seam. Presence, never value comparison: an override
- * written to exactly the composition base is still an override, and the seam
- * treats it as one.
- * @param user - the raw user section, when the Host sent one.
- * @param path - the field's path.
- * @returns true when the user layer has the key.
- */
-export function isOverridden(user: unknown, path: readonly string[]): boolean {
-  if (path.length === 0) return false
-  const parent = getPath(user, path.slice(0, -1))
-  if (typeof parent !== 'object' || parent === null || Array.isArray(parent)) return false
-  return Object.prototype.hasOwnProperty.call(parent, path[path.length - 1] as string)
 }

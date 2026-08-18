@@ -19,6 +19,7 @@ import {
   SETTINGS_PATH,
   type SettingsDocument, type SettingsNamespaceView, type SettingsPathOp,
 } from '../contract.ts'
+import { isOverridden, samePath } from '../settings-path.ts'
 import { HubError, readJson } from './hub-source.ts'
 
 /** Everything the panel learned from one read. */
@@ -128,6 +129,19 @@ export function namespacesFor(
  * @returns true when the Host reports the slot configured.
  */
 export function isSecretSet(view: SettingsNamespaceView, path: readonly string[]): boolean {
-  return view.secrets.some(slot =>
-    slot.path.length === path.length && slot.path.every((part, index) => part === path[index]) && slot.set)
+  return view.secrets.some(slot => samePath(slot.path, path) && slot.set)
+}
+
+/**
+ * Whether a field is user-overridden.
+ *
+ * For ordinary fields this is presence in the redacted `user` layer. For a
+ * secret it is the sidecar flag: redaction deletes the key, so presence
+ * there cannot be read.
+ * @param view - the namespace view.
+ * @param path - the field's path.
+ * @returns true when the user layer carries the path.
+ */
+export function isFieldOverridden(view: SettingsNamespaceView, path: readonly string[]): boolean {
+  return isOverridden(view.user, path) || view.secrets.some(slot => samePath(slot.path, path) && slot.overridden)
 }

@@ -15,7 +15,8 @@
 |---|---|
 | 设置 → 插件 下的第三个页签 **插件中心** | `settings.plugins.tab` 里的一个条目——ui-settings 为"清单类"和"配置类"插件留的那个座位 |
 | 合并后的目录，以及每个来源的结果 | `GET /api/plughub/catalog`，由 `local`、`registry`、`github` 三个来源解析而来 |
-| 每张卡片上的安装、更新与卸载 | `POST /api/plughub/install`、`/update`、`/uninstall`，各自 shell 出去执行 `dsh plugin --profile <name>` |
+| 可安装上的安装或更新；已安装上的更新和卸载 | `POST /api/plughub/install`、`/update`、`/uninstall`，各自 shell 出去执行 `dsh plugin --profile <name>` |
+| 已安装上的启用/停用 | `POST /api/plughub/enabled`，改写 `dsh.profile.bundles` 和一份停用名单；包仍留在 `node_modules`。插件中心自己可以更新，不能停用，也不能卸载。 |
 | 每个已安装插件的配置表单 | `GET`/`POST /api/plughub/settings`，转运 `ctx.settings.describe({ redactSecrets: true })` 与 `ctx.settings.mutate` |
 | 操作进度与重启提示 | `GET /api/plughub/events`，一条事件流 |
 | `omdsh.plugin.card` slot | `ctx.slots`——通用表单画不出来的控件，插件在这里注册自己的那张脸 |
@@ -84,12 +85,15 @@ bundle 用 `dsh.plughub.settings` 声明了它时才可达，所以同一个进�
 翻找那个能修好它的开关。当所有来源都失败、或者什么都没拉到时，它会自己展开一
 次。
 
-**可安装**——合并后的目录，带安装、更新和卸载。卡片的标题、简介和文档链接都是
-插件自己的，从它的 `dsh.plughub` 声明里读出来，按当前语言解析。
+**可安装**——合并后的目录，每张卡片一个按钮。没装是安装；已装且没有新版本是
+灰色的更新；有新版本时同一个按钮亮起。卡片的标题、简介和文档链接都是插件自
+己的，从它的 `dsh.plughub` 声明里读出来，按当前语言解析。
 
-**已安装**——这个 profile 组装的每个 bundle 一行。展开后是按该插件的 settings
-schema 生成的表单；没有注册命名空间的插件会明确说"没有可配置项"，这是一个真
-实的回答，而不是一个空盒子。
+**已安装**——这个 profile 里的每个插件一行，无论当前是否在组装栈上。启用和停
+用共用一个按钮：停用把依赖从层栈上拿下来，但不碰 `node_modules`，再用时按启
+用即可，不必重新安装。模板自带的 bundle 和插件中心本身不能从这里停用。展开后
+是按该插件的 settings schema 生成的表单；没有注册命名空间的插件会明确说"没有
+可配置项"，这是一个真实的回答，而不是一个空盒子。
 
 profile 有变化时顶部会出现重启提示。插件层是在启动时组装的，被监听的只有用户
 patch 层，所以新装的 bundle 确实没法热挂载——说"需要重启"是实话，不是拿话术
@@ -97,9 +101,10 @@ patch 层，所以新装的 bundle 确实没法热挂载——说"需要重启"�
 
 ## 更新
 
-更新按钮在卸载左边，没东西可拉的时候是灰的。到底是哪种，由 Host 用它手上已经
-有的两个数字判断——获胜来源声明的版本，和磁盘上那个包的版本——按 semver 比，
-不是按字符串比（`0.10.0` 比 `0.9.0` 新，`1.0.0` 比 `1.0.0-rc.2` 新）。
+已安装的可安装卡片上只有更新这一个按钮，没东西可拉的时候是灰的。到底是哪种，
+由 Host 用它手上已经有的两个数字判断——获胜来源声明的版本，和磁盘上那个包的
+版本——按 semver 比，不是按字符串比（`0.10.0` 比 `0.9.0` 新，`1.0.0` 比
+`1.0.0-rc.2` 新）。
 
 | 状态 | 卡片上显示 | 按钮 |
 |---|---|---|
@@ -193,10 +198,11 @@ monorepo 不会被提供。这通常是对的——这里的 monorepo 装着的�
 | 路由 | 方法 | 作用 |
 |---|---|---|
 | `/api/plughub/catalog` | GET | 合并后的目录，`?refresh=1` 重新拉取每个来源 |
-| `/api/plughub/installed` | GET | 这个 profile 的 bundle，以及哪些可以卸载 |
+| `/api/plughub/installed` | GET | 这个 profile 的插件，哪些可以卸载，哪些在组装栈上 |
 | `/api/plughub/install` | POST | `{ id }`——安装一个目录条目 |
 | `/api/plughub/update` | POST | `{ name }`——按目录当前提供的规格重装一个已安装插件 |
 | `/api/plughub/uninstall` | POST | `{ name }`——卸载一个依赖管理的 bundle |
+| `/api/plughub/enabled` | POST | `{ name, enabled }`——组装或停用一个依赖管理的插件 |
 | `/api/plughub/events` | GET | 操作进度、重启标记与设置失效通知，事件流 |
 | `/api/plughub/settings` | GET | 已安装插件持有的每个命名空间，已脱敏 |
 | `/api/plughub/settings` | POST | `{ ns, ops, expectedRevision }`——一次按路径寻址的修改 |
@@ -268,10 +274,10 @@ omdsh-plughub update omdsh-status      # 挪到目录里那个版本
 omdsh-plughub remove omdsh-status      # 卸一个
 ```
 
-它存在的理由就是上一节。这套集合里十二个插件有十个不在 npm 上，而不在 npm 上的
-插件就没有一条能用的 `dsh plugin add`——pnpm 要的那个 allowlist key 里带着它解析
-出来的 commit，只能从报错里抄，事先写不出来。这个包一直知道该怎么应付，只是在此
-之前它只应答一个按钮。
+它存在的理由就是上一节。只有这个包从 npm 装；集合里其余每一个插件都从 GitHub 装，
+而 git 安装就没有一条能用的 `dsh plugin add`——pnpm 要的那个 allowlist key 里带着
+它解析出来的 commit，只能从报错里抄，事先写不出来。这个包一直知道该怎么应付，只
+是在此之前它只应答一个按钮。
 
 这里没有第二套实现。命令解析的是同一份目录，从里面取出同一个 specifier，交给同一
 个 `Installer`——所以从终端装上的插件和从页签装上的插件，是同一条依赖、同一行
@@ -460,9 +466,9 @@ harness 声明 `settings.plugins.tab` 的原话就是，为了让"清单类插�
 
 ## 已知限制
 
-- **每一次安装、更新和卸载都需要重启。** 插件层是在启动时组装的，被监听的只有
-  用户 patch 层，所以新装的 bundle 没法热挂载。提示条说的就是这件事，它背后没有
-  一个"以后版本会悄悄修好"的东西。
+- **每一次安装、更新、卸载、启用和停用都需要重启。** 插件层是在启动时组装的，
+  被监听的只有用户 patch 层，所以新装的或刚停用的 bundle 没法热挂载。提示条说
+  的就是这件事，它背后没有一个"以后版本会悄悄修好"的东西。
 - **本地来源只往下扫一层目录。** 配置的根目录里放的是插件 checkout，凡是自己的
   `package.json` 里没有 `dsh.bundle.patch` 的都会被跳过——所以把可安装的那一半
   放在 `packages/` 里的 monorepo 不会被提供。想让它出现，就把 `localSources`
@@ -473,7 +479,7 @@ harness 声明 `settings.plugins.tab` 的原话就是，为了让"清单类插�
 - **`profileDir` 不能在面板里改。** 这个运行时管哪个 profile，在插件挂载时、
   settings 层解析之前就定下来了，所以这个字段对表单 `.hidden()`，只属于组装配置。
 - **写路由只限回环。** 一个开放到局域网的 `dsh web` 可以浏览目录、读面板，但安装、
-  更新、卸载和写设置都会被拒绝——把 `/api` 发布出去，并不等于同意在这台机器上执行
+  更新、卸载、启用、停用和写设置都会被拒绝——把 `/api` 发布出去，并不等于同意在这台机器上执行
   某个包的 `prepare` 脚本。
 - **一个命名空间只有在被某个已安装 bundle 声明时才可达。** 网关是按
   `dsh.plughub.settings` 判断归属的，所以由"不是 profile 的 bundle"注册的命名

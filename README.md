@@ -17,7 +17,8 @@ by hand. This makes both a page.
 |---|---|
 | A third tab in Settings → Plugins, **Plugin hub** | An entry in `settings.plugins.tab`, the seat ui-settings declares for inventory and configuration plugins |
 | The merged catalog, and what each source reported | `GET /api/plughub/catalog`, resolved from the `local`, `registry` and `github` sources |
-| Install, Update and Remove on every card | `POST /api/plughub/install`, `/update` and `/uninstall`, each shelling out to `dsh plugin --profile <name>` |
+| Install or Update on Available; Update and Remove on Installed | `POST /api/plughub/install`, `/update` and `/uninstall`, each shelling out to `dsh plugin --profile <name>` |
+| Enable/Disable on Installed | `POST /api/plughub/enabled`, rewriting `dsh.profile.bundles` and a parked list; the package stays in `node_modules`. The hub itself can be updated, and cannot be disabled or uninstalled. |
 | A configuration form for every installed plugin | `GET`/`POST /api/plughub/settings`, carrying `ctx.settings.describe({ redactSecrets: true })` and `ctx.settings.mutate` |
 | Operation progress and the restart banner | `GET /api/plughub/events`, an event stream |
 | The `omdsh.plugin.card` slot | `ctx.slots`, where a plugin whose control the generic form cannot draw registers its own face |
@@ -96,11 +97,16 @@ plugin gets; it simply sits here instead of in the installed list, so nobody
 looking at an empty catalog has to hunt for the control that fixes it. It opens
 itself once when every source failed or nothing came back.
 
-**Available** — the merged catalog, with Install, Update, and Remove. A card's
-title, summary, and documentation link are the plugin's own, read from its
-`dsh.plughub` manifest section and resolved for the active locale.
+**Available** — the merged catalog, one button per card. Not installed is
+Install; installed with nothing to fetch is a grey Update; a newer version
+lights the same button. A card's title, summary, and documentation link are
+the plugin's own, read from its `dsh.plughub` manifest section and resolved
+for the active locale.
 
-**Installed** — one row per bundle this profile has composed. Expanding it
+**Installed** — one row per plugin this profile has, composed or parked.
+Enable and Disable share one button: Disable takes a dependency off the layer
+stack without touching `node_modules`, so using it again is Enable rather than
+another install. Template bundles and the hub itself stay on. Expanding a row
 shows a form built from that plugin's settings schema; a plugin that registered
 no namespace says so, which is a real answer rather than an empty box.
 
@@ -111,8 +117,9 @@ honest report, not a limitation being papered over.
 
 ## Updates
 
-The Update button sits left of Remove and is grey until there is something to
-fetch. Which it is, is decided on the Host from two numbers it already holds —
+The Update button is the only action on an installed Available card, and is
+grey until there is something to fetch. Which it is, is decided on the Host
+from two numbers it already holds —
 the version the winning catalog source advertises, and the version of the
 package on disk — compared by semver, not by string order (`0.10.0` is newer
 than `0.9.0`, and `1.0.0` is newer than `1.0.0-rc.2`).
@@ -223,10 +230,11 @@ from the plugins' own `package.json` files rather than kept by hand.
 | Route | Method | What it does |
 |---|---|---|
 | `/api/plughub/catalog` | GET | The merged catalog. `?refresh=1` consults every source again |
-| `/api/plughub/installed` | GET | This profile's bundles, and which of them can be removed |
+| `/api/plughub/installed` | GET | This profile's plugins, which of them can be removed, and which are composed |
 | `/api/plughub/install` | POST | `{ id }` — install one catalog entry |
 | `/api/plughub/update` | POST | `{ name }` — reinstall one installed plugin from what the catalog offers now |
 | `/api/plughub/uninstall` | POST | `{ name }` — remove one dependency-managed bundle |
+| `/api/plughub/enabled` | POST | `{ name, enabled }` — compose or park a dependency-managed plugin |
 | `/api/plughub/events` | GET | Operation progress, the restart flag, and settings invalidations, as an event stream |
 | `/api/plughub/settings` | GET | Every namespace an installed plugin owns, redacted |
 | `/api/plughub/settings` | POST | `{ ns, ops, expectedRevision }` — one path-addressed edit |
@@ -314,12 +322,12 @@ omdsh-plughub update omdsh-status      # move it to the version the catalog offe
 omdsh-plughub remove omdsh-status      # and remove it
 ```
 
-It exists because of the paragraph above. Ten of the twelve plugins in this
-collection are not on npm, and a plugin that is not on npm has no working
-`dsh plugin add` line — the allowlist key pnpm demands carries the commit it
-resolved, so it can be copied out of a failure and never written down in
-advance. This package has always known how to answer that, and until now it
-answered only to a button.
+It exists because of the paragraph above. Only this package installs from npm;
+every other plugin in the collection installs from GitHub, and a git install
+has no working `dsh plugin add` line — the allowlist key pnpm demands carries
+the commit it resolved, so it can be copied out of a failure and never written
+down in advance. This package has always known how to answer that, and until
+now it answered only to a button.
 
 Nothing here is a second implementation. The command resolves the same catalog,
 takes the same specifier out of it, and hands it to the same `Installer` — so a
@@ -531,10 +539,10 @@ nothing, and removing it leaves the Plugins section with those two.
 
 ## Known limitations
 
-- **Every install, update and removal needs a restart.** Plugin layers are
-  composed at boot and only the user patch layers are watched, so a newly
-  installed bundle cannot be hot-mounted. The banner says so; there is nothing
-  behind it that a future version quietly fixes.
+- **Every install, update, removal, enable and disable needs a restart.** Plugin
+  layers are composed at boot and only the user patch layers are watched, so a
+  newly installed or newly parked bundle cannot be hot-mounted. The banner says
+  so; there is nothing behind it that a future version quietly fixes.
 - **A local source is scanned exactly one directory deep.** A configured root
   holds plugin checkouts, and anything that does not declare `dsh.bundle.patch`
   in its own `package.json` is passed over — so a monorepo whose installable
@@ -547,9 +555,9 @@ nothing, and removing it leaves the Plugins section with those two.
   manages is settled when the plugin mounts, before the settings layer resolves,
   so the field is `.hidden()` and belongs on the composition entry.
 - **The write routes are loopback only.** A `dsh web` published to the LAN can
-  browse the catalog and read the panel, but installs, updates, removals and
-  settings writes are refused — publishing `/api` is not consent to run a
-  package's `prepare` script on this machine.
+  browse the catalog and read the panel, but installs, updates, removals,
+  enables, disables and settings writes are refused — publishing `/api` is not
+  consent to run a package's `prepare` script on this machine.
 - **A namespace is reachable only when an installed bundle declares it.** The
   gateway resolves ownership from `dsh.plughub.settings`, so a namespace
   registered by something the profile does not carry as a bundle — the harness's

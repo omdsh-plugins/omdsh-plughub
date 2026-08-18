@@ -13,7 +13,8 @@
 .sectionHead {
   display: flex;
   align-items: center;
-  /* Wraps rather than crushing Refresh against a long translated heading. */
+  /* Wraps rather than crushing the search field, for a narrow settings panel
+     or a long translated heading. */
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -34,19 +35,22 @@
 
 .sectionHead > :last-child { margin-left: auto; }
 
-/* Between the sources region and the two lists it filters. Centred and
-   bounded so a wide settings panel does not stretch one field across it.
-   The Input's own wrapper is the label's last child — the only other one
-   is the visually-hidden text, first and out of flow. Two selectors deep
-   on purpose: this overrides a width the Input primitive sets on a single
-   class, and the two stylesheets are injected independently. */
-.searchBar {
+/* Takes the gap the heading row already has between the count and Refresh.
+   Growing to fill it also leaves `.sectionHead > :last-child`'s auto margin
+   nothing to push with, so Refresh stays on the right. The Input's own
+   wrapper is the label's last child — the only other one is the
+   visually-hidden text, first and out of flow. Two selectors deep on
+   purpose: this overrides a width the Input primitive sets on a single
+   class, and the two stylesheets are injected independently. Bounded so a
+   wide panel does not stretch one field across it. */
+.search {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   justify-content: center;
-  min-width: 0;
 }
 
-.searchBar > :last-child {
+.search > :last-child {
   width: 100%;
   max-width: 340px;
 }
@@ -99,7 +103,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
   padding: 0;
   border: none;
   background: transparent;
@@ -208,6 +214,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Tooltip anchor around an icon-only card action. Inline-flex so the bubble
+   measures the button, not a stretched block. */
+.action {
+  display: inline-flex;
 }
 
 .cardSummary {

@@ -18,7 +18,7 @@ import {
 
 /** One installed bundle, with only what the assertion cares about spelled out. */
 function installed(name: string, settings: string[]): InstalledEntry {
-  return { name, metadata: { ...EMPTY_METADATA, settings }, removable: true }
+  return { name, metadata: { ...EMPTY_METADATA, settings }, removable: true, enabled: true, toggleable: true }
 }
 
 /** One descriptor as the seam would produce it. */
@@ -27,7 +27,11 @@ function descriptor(ns: string, overrides: Partial<SettingsDescriptorLike> = {})
 }
 
 /** A settings seam holding a fixed set of descriptors. */
-function seam(descriptors: SettingsDescriptorLike[], mutate?: SettingsSeam['mutate']): SettingsSeam & {
+function seam(
+  descriptors: SettingsDescriptorLike[],
+  mutate?: SettingsSeam['mutate'],
+  unredacted?: SettingsDescriptorLike[],
+): SettingsSeam & {
   describeCalls: ({ redactSecrets?: boolean } | undefined)[]
 } {
   const describeCalls: ({ redactSecrets?: boolean } | undefined)[] = []
@@ -37,7 +41,7 @@ function seam(descriptors: SettingsDescriptorLike[], mutate?: SettingsSeam['muta
     describeCalls,
     describe: (options) => {
       describeCalls.push(options)
-      return descriptors
+      return options?.redactSecrets === true ? descriptors : (unredacted ?? descriptors)
     },
     mutate: mutate ?? (() => Promise.resolve()),
   }
@@ -67,12 +71,25 @@ describe('describeOwned', () => {
     expect(document.namespaces.map(view => view.ns)).toEqual(['omdsh-a'])
   })
 
-  it('always asks the seam to redact', () => {
+  it('always asks the seam to redact the wire view', () => {
     const settings = seam([descriptor('omdsh-a')])
     describeOwned(settings, new Set(['omdsh-a']))
-    // The one thing keeping secrets off this wire; nothing downstream could
-    // put them back.
-    expect(settings.describeCalls).toEqual([{ redactSecrets: true }])
+    // Redacted for the browser; unredacted only to recover secret-key presence.
+    expect(settings.describeCalls).toEqual([undefined, { redactSecrets: true }])
+  })
+
+  it('reports a stored secret as overridden without putting the value on the wire', () => {
+    const redacted = descriptor('omdsh-a', {
+      user: { model: 'gemini' },
+      secrets: [{ path: ['apiKey'], set: true }],
+    })
+    const raw = descriptor('omdsh-a', {
+      user: { model: 'gemini', apiKey: 'sk-live-secret' },
+    })
+    const document = describeOwned(seam([redacted], undefined, [raw]), new Set(['omdsh-a']))
+    expect(document.namespaces[0]?.secrets).toEqual([{ path: ['apiKey'], set: true, overridden: true }])
+    expect(document.namespaces[0]?.user).toEqual({ model: 'gemini' })
+    expect(JSON.stringify(document)).not.toContain('sk-live-secret')
   })
 
   it('reports that a document exists without saying where', () => {
@@ -104,7 +121,7 @@ describe('toNamespaceView', () => {
       base: { a: 1 },
       user: { a: 2 },
       applies: 'restart',
-      secrets: [{ path: ['token'], set: true }],
+      secrets: [{ path: ['token'], set: true, overridden: false }],
       revision: 7,
     })
     expect(toNamespaceView(descriptor('omdsh-a'))).not.toHaveProperty('base')
@@ -115,6 +132,33 @@ describe('toNamespaceView', () => {
     const bare = { ...descriptor('omdsh-a') }
     delete (bare as { secrets?: unknown }).secrets
     expect(toNamespaceView(bare).secrets).toEqual([])
+  })
+
+  it('marks a secret overridden from the unredacted user layer, without copying the value', () => {
+    // Redaction deletes the key from `user`, which is what made the form
+    // treat a stored API key as never-overridden. The raw layer is read
+    // Host-side and discarded.
+    const view = toNamespaceView(
+      descriptor('omdsh-a', {
+        user: { model: 'gemini' },
+        secrets: [{ path: ['apiKey'], set: true }],
+      }),
+      { model: 'gemini', apiKey: 'sk-live-secret' },
+    )
+    expect(view.secrets).toEqual([{ path: ['apiKey'], set: true, overridden: true }])
+    expect(view.user).toEqual({ model: 'gemini' })
+    expect(JSON.stringify(view)).not.toContain('sk-live-secret')
+  })
+
+  it('does not mark a secret that only the composition base holds', () => {
+    const view = toNamespaceView(
+      descriptor('omdsh-a', {
+        base: {},
+        secrets: [{ path: ['apiKey'], set: true }],
+      }),
+      {},
+    )
+    expect(view.secrets).toEqual([{ path: ['apiKey'], set: true, overridden: false }])
   })
 })
 
@@ -162,6 +206,30 @@ describe('writeOwned', () => {
     const settings = seam([descriptor('omdsh-a', { revision: 4 })])
     const result = await writeOwned(settings, new Set(['omdsh-a']), { ns: 'omdsh-a', ops })
     expect(result).toEqual({ status: 'ok', namespace: expect.objectContaining({ ns: 'omdsh-a', revision: 4 }) })
+  })
+
+  it('marks a just-written secret overridden on the view it answers with', async () => {
+    const redacted = descriptor('omdsh-a', {
+      user: {},
+      secrets: [{ path: ['apiKey'], set: true }],
+      revision: 5,
+    })
+    const raw = descriptor('omdsh-a', {
+      user: { apiKey: 'sk-just-written' },
+      revision: 5,
+    })
+    const result = await writeOwned(
+      seam([redacted], undefined, [raw]),
+      new Set(['omdsh-a']),
+      { ns: 'omdsh-a', ops: [{ op: 'set', path: ['apiKey'], value: 'sk-just-written' }] },
+    )
+    expect(result).toEqual({
+      status: 'ok',
+      namespace: expect.objectContaining({
+        secrets: [{ path: ['apiKey'], set: true, overridden: true }],
+      }),
+    })
+    expect(JSON.stringify(result)).not.toContain('sk-just-written')
   })
 
   it('distinguishes a stale revision from a rejection', async () => {

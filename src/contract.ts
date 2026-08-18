@@ -25,6 +25,22 @@ export const INSTALL_PATH = `${ROUTE_PREFIX}/install`
 export const UNINSTALL_PATH = `${ROUTE_PREFIX}/uninstall`
 
 /**
+ * POST `{ name, enabled }`: take a dependency-managed plugin off the composed
+ * layer stack, or put it back, without touching `node_modules`.
+ *
+ * Separate from {@link UNINSTALL_PATH} because the package stays installed —
+ * `dsh plugin remove` is what throws it away, and this is what parks it.
+ */
+export const ENABLED_PATH = `${ROUTE_PREFIX}/enabled`
+
+/**
+ * This plugin's own package name. It can be updated, and it cannot be
+ * disabled or uninstalled: the hub is the only UI that puts plugins back,
+ * including a newer copy of itself.
+ */
+export const HUB_PACKAGE_NAME = '@omdsh-plugins/omdsh-plughub'
+
+/**
  * POST `{ name }`: reinstall one installed plugin from the specifier the
  * catalog currently resolves for it, which is how a newer version arrives.
  *
@@ -202,11 +218,23 @@ export interface InstalledEntry {
   readonly metadata: PlughubMetadata
   /**
    * Whether this plugin can be removed from here. False for the profile
-   * template's own bundles (`dsh-base`, `dsh-web-app`): they are not
-   * dependencies, so `pnpm remove` has nothing to take out, and a profile
-   * without them is not a profile.
+   * template's own bundles (`dsh-base`, `dsh-web-app`) and for this hub:
+   * template bundles are not dependencies, so `pnpm remove` has nothing to
+   * take out, and the hub is the only UI that puts plugins back.
    */
   readonly removable: boolean
+  /**
+   * Whether this plugin's bundle layer is on the composed stack. A disabled
+   * plugin is still installed — its files stay in `node_modules` — and
+   * Enable puts the layer back without another fetch.
+   */
+  readonly enabled: boolean
+  /**
+   * Whether Enable/Disable is offered. Template bundles cannot leave the
+   * stack, and neither can the hub: Update is the one write the hub
+   * accepts.
+   */
+  readonly toggleable: boolean
 }
 
 /** What this profile has installed. */
@@ -226,12 +254,19 @@ export interface InstalledDocument {
  * One schema-declared secret position inside a redacted namespace value.
  *
  * The value itself never rides; `set` is how a form learns a write-only field
- * exists and whether it currently holds anything.
+ * exists and whether it currently holds anything. `overridden` is how it
+ * learns the user layer carries the key — redaction strips that key from
+ * `user`, so presence there cannot be read from the wire.
  */
 export interface SettingsSecretView {
   /** Path from the section root to the removed field. */
   readonly path: readonly string[]
   readonly set: boolean
+  /**
+   * Whether the user layer carries this path. Same meaning as presence in
+   * {@link SettingsNamespaceView.user} for every other field.
+   */
+  readonly overridden: boolean
 }
 
 /** Wire view of one registered settings namespace, redacted. */
@@ -298,7 +333,7 @@ export interface SettingsWriteResponse {
 }
 
 /** Which way an operation goes. */
-export type OperationKind = 'install' | 'uninstall' | 'update'
+export type OperationKind = 'install' | 'uninstall' | 'update' | 'enable' | 'disable'
 
 /** Where one operation stands. */
 export type OperationStatus = 'running' | 'ok' | 'failed'
@@ -350,6 +385,14 @@ export interface UninstallRequest {
 export interface UpdateRequest {
   /** A {@link CatalogEntry.name} that is installed and that the catalog still offers. */
   readonly name: string
+}
+
+/** What a POST to {@link ENABLED_PATH} carries. */
+export interface EnabledRequest {
+  /** An {@link InstalledEntry.name} that reported `toggleable`. */
+  readonly name: string
+  /** The intended composed state. */
+  readonly enabled: boolean
 }
 
 /** What both write routes answer with on success. */

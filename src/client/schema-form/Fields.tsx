@@ -79,7 +79,7 @@ function FieldShell({
   labels: FieldLabels
   onUnset: () => void
   children: ReactNode
-  hint?: string | undefined
+  hint?: ReactNode
 }): ReactNode {
   return (
     <div className={css.field} data-field={field.path.join('.')} data-depth={field.depth}>
@@ -150,7 +150,9 @@ function SecretField(props: FieldProps): ReactNode {
     <FieldShell
       {...props}
       onUnset={props.onUnset}
-      hint={props.secretSet ? props.labels.secretSet : props.labels.secretUnset}
+      hint={props.secretSet
+        ? <strong>{props.labels.secretSet}</strong>
+        : props.labels.secretUnset}
     >
       <Input
         type="password"

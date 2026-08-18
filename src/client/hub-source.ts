@@ -1,6 +1,6 @@
 /**
  * Talking to this plugin's own Host half: the catalog, the installed list, the
- * two write routes, and the event stream that says how an install is going.
+ * write routes, and the event stream that says how an install is going.
  *
  * Plain `fetch` against same-origin paths rather than an RPC remote, for the
  * reason `omdsh-shortcuts` reaches the same way: a generated Remote is a
@@ -11,7 +11,7 @@
  */
 
 import {
-  CATALOG_PATH, EVENTS_PATH, INSTALL_PATH, INSTALLED_PATH, UNINSTALL_PATH, UPDATE_PATH,
+  CATALOG_PATH, ENABLED_PATH, EVENTS_PATH, INSTALL_PATH, INSTALLED_PATH, UNINSTALL_PATH, UPDATE_PATH,
   type CatalogDocument, type InstalledDocument, type OperationState, type PlughubEvent,
 } from '../contract.ts'
 
@@ -124,6 +124,17 @@ export function requestUpdate(name: string): Promise<{ operation: OperationState
  */
 export function requestUninstall(name: string): Promise<{ operation: OperationState }> {
   return post(UNINSTALL_PATH, { name })
+}
+
+/**
+ * Ask the Host to put a dependency-managed plugin on the composed stack, or
+ * take it off, without touching `node_modules`.
+ * @param name - the package name.
+ * @param enabled - the intended composed state.
+ * @returns the accepted operation.
+ */
+export function requestSetEnabled(name: string, enabled: boolean): Promise<{ operation: OperationState }> {
+  return post(ENABLED_PATH, { name, enabled })
 }
 
 /** How an event stream is opened; injected so specs need no EventSource. */

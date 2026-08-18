@@ -12,7 +12,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { OperationState } from '../src/contract.ts'
+import { HUB_PACKAGE_NAME, type OperationState } from '../src/contract.ts'
 import {
   allowBuild, blockedBuilds, boundLog, gitBuildKey, ignoredBuildNames, Installer, isLauncherEntry,
   resolveLauncher, updateSpec, withAllowBuild,
@@ -443,6 +443,19 @@ describe('Installer', () => {
     expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).not.toContain('omdsh-a')
   })
 
+  it('updates the hub the same way as any other plugin', async () => {
+    const run = stubRunner()
+    const installer = new Installer(
+      { profileDir: scratch(), profileName: 'web', home: '/tmp/home', launcher: () => '/bin/dsh', run },
+      () => undefined,
+    )
+    installer.update(HUB_PACKAGE_NAME, HUB_PACKAGE_NAME, '0.2.4')
+    await installer.drain()
+    expect(run.calls[0]).toEqual([
+      '/bin/dsh', 'plugin', '--profile', 'web', 'add', `${HUB_PACKAGE_NAME}@0.2.4`,
+    ])
+  })
+
   it('runs `add` for an update, against a specifier that names where it goes', async () => {
     const run = stubRunner()
     const sink = collector()
@@ -483,6 +496,89 @@ describe('Installer', () => {
     installer.uninstall('@x/omdsh-a')
     await installer.drain()
     expect(run.calls[0]).toEqual(['/bin/dsh', 'plugin', '--profile', 'web', 'remove', '@x/omdsh-a'])
+  })
+
+  it('puts a parked plugin back on the stack before the launcher removes it', async () => {
+    const dir = scratch()
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      dependencies: { '@x/omdsh-a': '^1.0.0' },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'], disabled: ['@x/omdsh-a'] } },
+    }))
+    const run = stubRunner()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: '/tmp/home', launcher: () => '/bin/dsh', run },
+      () => undefined,
+    )
+    installer.uninstall('@x/omdsh-a')
+    await installer.drain()
+    expect(run.calls[0]).toEqual(['/bin/dsh', 'plugin', '--profile', 'web', 'remove', '@x/omdsh-a'])
+    // The mock remove does not edit the file; the park mark is gone because
+    // Enable ran first and forgetDisabled then found nothing to drop.
+    const profile = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+      dsh: { profile: { bundles: string[]; disabled?: string[] } }
+    }
+    expect(profile.dsh.profile.bundles).toContain('@x/omdsh-a')
+    expect(profile.dsh.profile.disabled ?? []).toEqual([])
+  })
+
+  it('rewrites the profile layers for enable and disable, and never spawns', async () => {
+    const dir = scratch()
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      dependencies: { '@x/omdsh-a': '^1.0.0' },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@x/omdsh-a'] } },
+    }))
+    const run = stubRunner()
+    const sink = collector()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: '/tmp/home', launcher: () => '/bin/dsh', run },
+      sink.onChange,
+    )
+    installer.setEnabled('@x/omdsh-a', false)
+    await installer.drain()
+    expect(run.calls).toEqual([])
+    expect(sink.states.map(state => state.kind)).toEqual(['disable', 'disable'])
+    expect(sink.states.at(-1)?.status).toBe('ok')
+    const parked = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+      dsh: { profile: { bundles: string[]; disabled?: string[] } }
+    }
+    expect(parked.dsh.profile.bundles).toEqual(['@deepseek-ai/dsh-base'])
+    expect(parked.dsh.profile.disabled).toEqual(['@x/omdsh-a'])
+
+    installer.setEnabled('@x/omdsh-a', true)
+    await installer.drain()
+    expect(sink.states.at(-1)).toMatchObject({ kind: 'enable', status: 'ok' })
+    const restored = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+      dsh: { profile: { bundles: string[]; disabled?: string[] } }
+    }
+    expect(restored.dsh.profile.bundles).toEqual(['@deepseek-ai/dsh-base', '@x/omdsh-a'])
+    expect(restored.dsh.profile.disabled).toBeUndefined()
+  })
+
+  it('refuses to disable or uninstall the hub', async () => {
+    const dir = scratch()
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      dependencies: { [HUB_PACKAGE_NAME]: '^1.0.0' },
+      dsh: { profile: { bundles: [HUB_PACKAGE_NAME] } },
+    }))
+    const run = stubRunner()
+    const sink = collector()
+    const installer = new Installer(
+      { profileDir: dir, profileName: 'web', home: '/tmp/home', run },
+      sink.onChange,
+    )
+    installer.setEnabled(HUB_PACKAGE_NAME, false)
+    await installer.drain()
+    expect(sink.states.at(-1)?.status).toBe('failed')
+    expect(sink.states.at(-1)?.error).toContain('cannot be disabled')
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))).toMatchObject({
+      dsh: { profile: { bundles: [HUB_PACKAGE_NAME] } },
+    })
+
+    installer.uninstall(HUB_PACKAGE_NAME)
+    await installer.drain()
+    expect(run.calls).toEqual([])
+    expect(sink.states.at(-1)?.status).toBe('failed')
+    expect(sink.states.at(-1)?.error).toContain('cannot be uninstalled')
   })
 
   it('reports a non-zero exit with the command output', async () => {

@@ -42,7 +42,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { PlughubEvent } from '../contract.ts'
 import {
-  fetchCatalog, fetchInstalled, followOperations, requestInstall, requestUninstall, requestUpdate,
+  fetchCatalog, fetchInstalled, followOperations, requestInstall, requestSetEnabled,
+  requestUninstall, requestUpdate,
 } from './hub-source.ts'
 import { describeSettings, mutateSetting } from './settings-source.ts'
 import { en, zh, type PlughubLocaleKey } from './locales.ts'
@@ -57,7 +58,8 @@ export type { SettingsSnapshot, WriteOutcome } from './settings-source.ts'
 export { namespacesFor, isSecretSet, describeSettings, mutateSetting } from './settings-source.ts'
 export {
   applyEvent, operationFor, parseEvent, followOperations,
-  fetchCatalog, fetchInstalled, requestInstall, requestUninstall, requestUpdate, HubError,
+  fetchCatalog, fetchInstalled, requestInstall, requestSetEnabled, requestUninstall, requestUpdate,
+  HubError,
 } from './hub-source.ts'
 export { compareVersions, isLinkedSpec, parseVersion, updateStateFor, versionLabel } from '../version.ts'
 export { SourcesSection } from './SourcesSection.tsx'
@@ -99,6 +101,7 @@ export function apply(ctx: ClientContext): void {
     install: async (packageName) => { await requestInstall(packageName) },
     update: async (packageName) => { await requestUpdate(packageName) },
     uninstall: async (packageName) => { await requestUninstall(packageName) },
+    setEnabled: async (packageName, enabled) => { await requestSetEnabled(packageName, enabled) },
     writeSetting: mutateSetting,
     // One stream carries operation progress, the restart flag, AND settings
     // invalidations — a commit from another tab or from the document edited

@@ -61,7 +61,8 @@
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
-import type { OperationKind, OperationState } from './contract.ts'
+import { HUB_PACKAGE_NAME, type OperationKind, type OperationState } from './contract.ts'
+import { applyDisabled, forgetDisabled, readProfileManifest, setEnabled } from './profile.ts'
 import { isGitSpec, isPackageName } from './catalog/source.ts'
 import { resolvePnpmDir } from './pnpm.ts'
 
@@ -575,8 +576,39 @@ export class Installer {
    * @returns the operation as it stands when accepted.
    */
   uninstall(name: string): OperationState {
-    return this.enqueue('uninstall', name, () =>
-      ['plugin', '--profile', this.options.profileName, 'remove', name])
+    return this.enqueue('uninstall', name, () => {
+      if (name === HUB_PACKAGE_NAME) {
+        throw new Error(`${name} is the plugin hub and cannot be uninstalled`)
+      }
+      // A parked plugin is off `bundles`, and `dsh plugin remove` matches
+      // that list. Put it back first so the launcher can take the
+      // dependency out; the success path drops the park mark afterwards.
+      const manifest = readProfileManifest(this.options.profileDir)
+      if (manifest.disabled.includes(name) && !manifest.bundles.includes(name)) {
+        const result = setEnabled(this.options.profileDir, name, true)
+        if (result.status !== 'ok') throw new Error(result.error)
+      }
+      return ['plugin', '--profile', this.options.profileName, 'remove', name]
+    })
+  }
+
+  /**
+   * Queue an enable or disable: rewrite the profile layers, leave the
+   * dependency where it is.
+   *
+   * Not a `dsh plugin` run. The package is already on disk; this only decides
+   * whether the next boot composes it. Serialized with the other writes so a
+   * disable cannot interleave with an install that is still reconciling.
+   * @param name - the package name.
+   * @param enabled - the intended composed state.
+   * @returns the operation as it stands when accepted.
+   */
+  setEnabled(name: string, enabled: boolean): OperationState {
+    const kind: OperationKind = enabled ? 'enable' : 'disable'
+    return this.enqueueAction(kind, name, () => {
+      const result = setEnabled(this.options.profileDir, name, enabled)
+      if (result.status !== 'ok') throw new Error(result.error)
+    })
   }
 
   /** Settlement of everything queued so far, for teardown. */
@@ -597,6 +629,26 @@ export class Installer {
     // covers that case exactly as it covers a git plugin whose name was right.
     if (isGitSpec(spec) && isPackageName(name)) allowBuild(this.options.profileDir, name)
     return ['plugin', '--profile', this.options.profileName, 'add', spec]
+  }
+
+  /** Accept one local write, publish it as running, and chain it behind the rest. */
+  private enqueueAction(kind: OperationKind, name: string, action: () => void): OperationState {
+    const accepted: OperationState = { id: ++this.nextId, kind, name, status: 'running', log: [] }
+    this.tail = this.tail.catch(() => undefined).then(() => {
+      try {
+        action()
+        this.onChange({ ...accepted, status: 'ok' })
+      } catch (error) {
+        this.onChange({
+          ...accepted,
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+          log: [],
+        })
+      }
+    })
+    this.onChange(accepted)
+    return accepted
   }
 
   /** Accept one operation, publish it as running, and chain it behind the rest. */
@@ -664,7 +716,22 @@ export class Installer {
       outcome = await attempt()
     }
 
-    if (outcome.code === 0) return { ...accepted, status: 'ok', log: outcome.log }
+    if (outcome.code === 0) {
+      // `dsh plugin` reconciliation puts every bundle-declaring dependency
+      // back on the stack, including ones this panel parked. Strip those
+      // again; a removal also drops the name from the parked list so a
+      // later install is a fresh Enable, not a ghost row.
+      if (accepted.kind === 'install' || accepted.kind === 'uninstall') {
+        // Install forgets a stale park left by an external `dsh plugin
+        // remove`; uninstall forgets the mark because the files are gone.
+        // An update of a parked plugin keeps it parked.
+        forgetDisabled(this.options.profileDir, accepted.name)
+      }
+      if (accepted.kind === 'install' || accepted.kind === 'update' || accepted.kind === 'uninstall') {
+        applyDisabled(this.options.profileDir)
+      }
+      return { ...accepted, status: 'ok', log: outcome.log }
+    }
     return {
       ...accepted,
       status: 'failed',

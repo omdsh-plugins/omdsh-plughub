@@ -3,11 +3,12 @@
  *
  * ## Why this exists
  *
- * Ten of the twelve plugins in this collection are not on npm, and a plugin
- * that is not on npm has no working `dsh plugin add` line. pnpm ≥10 refuses to
- * run a git dependency's `prepare`, and the allowlist key it demands names the
- * tarball it resolved — `@scope/name@https://codeload.github.com/…/<sha>` —
- * so the entry cannot be written down in advance, only copied out of a failure.
+ * Only the hub itself installs from npm. Every other plugin in this collection
+ * installs from GitHub, and a git install has no working `dsh plugin add` line.
+ * pnpm ≥10 refuses to run a git dependency's `prepare`, and the allowlist key
+ * it demands names the tarball it resolved —
+ * `@scope/name@https://codeload.github.com/…/<sha>` — so the entry cannot be
+ * written down in advance, only copied out of a failure.
  * The Settings tab has always answered this: {@link Installer} writes what it
  * can, reads pnpm's refusal, writes the exact key, and runs again. That answer
  * was reachable only by pressing a button.
@@ -52,7 +53,7 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Catalog, catalogOptions, isInstallableSpec, isPackageName, type InstalledFacts } from './catalog/index.ts'
-import type { CatalogEntry, OperationState } from './contract.ts'
+import { HUB_PACKAGE_NAME, type CatalogEntry, type OperationState } from './contract.ts'
 import {
   DEFAULT_CACHE_TTL_MS, DEFAULT_MAX_REPOS, DEFAULT_PROFILE,
   DEFAULT_REGISTRY_URL, DEFAULT_TIMEOUT_MS, DEFAULT_UPSTREAM,
@@ -67,7 +68,7 @@ export const PROGRAM = 'omdsh-plughub'
 const PROFILES_DIR = 'profiles'
 
 /** What the CLI was asked to do. */
-export type Command = 'list' | 'add' | 'update' | 'remove' | 'help' | 'version'
+export type Command = 'list' | 'add' | 'update' | 'remove' | 'enable' | 'disable' | 'help' | 'version'
 
 /** Everything a run is configured by, after the flags are read. */
 export interface CliOptions {
@@ -196,7 +197,10 @@ export function parseArgs(argv: readonly string[]): Invocation | UsageError {
     }
 
     if (command === undefined) {
-      if (argument === 'list' || argument === 'add' || argument === 'update' || argument === 'remove' || argument === 'help') {
+      if (
+        argument === 'list' || argument === 'add' || argument === 'update' || argument === 'remove'
+        || argument === 'enable' || argument === 'disable' || argument === 'help'
+      ) {
         command = argument
         continue
       }
@@ -206,7 +210,11 @@ export function parseArgs(argv: readonly string[]): Invocation | UsageError {
   }
 
   if (command === undefined) return { command: 'help', targets: [], options: defaults() }
-  if ((command === 'add' || command === 'update' || command === 'remove') && targets.length === 0) {
+  if (
+    (command === 'add' || command === 'update' || command === 'remove'
+      || command === 'enable' || command === 'disable')
+    && targets.length === 0
+  ) {
     return { usage: `${command} needs at least one plugin` }
   }
 
@@ -328,6 +336,8 @@ Usage:
   ${PROGRAM} add <plugin…>              install one or more
   ${PROGRAM} update <plugin…>           move one or more to the version the catalog offers
   ${PROGRAM} remove <plugin…>           remove one or more
+  ${PROGRAM} enable <plugin…>           put one or more back on the composed stack
+  ${PROGRAM} disable <plugin…>          leave one or more installed but not composed
 
 A plugin is a package name (@omdsh-plugins/omdsh-status), its last segment
 (omdsh-status), or a specifier installed as written and never looked up
@@ -348,8 +358,8 @@ Options:
   -h, --help               this
   -V, --version            the package version
 
-Every install takes effect on the next start: the loader composes a profile at
-boot and nothing hot-swaps a bundle.`
+Every change to the layer stack takes effect on the next start: the loader
+composes a profile at boot and nothing hot-swaps a bundle.`
 
 /** Locate the profile a run was told to manage. */
 function resolveNamedProfile(name: string, home: string): ResolvedProfile | undefined {
@@ -366,16 +376,21 @@ function installedFacts(profile: ResolvedProfile): Map<string, InstalledFacts> {
   }]))
 }
 
+/** Every installed name, including ones taken off the stack on purpose. */
+function installedNames(profile: ResolvedProfile): string[] {
+  return listInstalled(profile.dir, readProfileManifest(profile.dir)).map(entry => entry.name)
+}
+
 /** Right-pad, so a column of names lines up without a formatting dependency. */
 function pad(text: string, width: number): string {
   return text.length >= width ? text : text + ' '.repeat(width - text.length)
 }
 
 /** Print the catalog as a person reads it. */
-function printCatalog(entries: readonly CatalogEntry[], io: Output): void {
+function printCatalog(entries: readonly CatalogEntry[], parked: ReadonlySet<string>, io: Output): void {
   const width = Math.max(0, ...entries.map(entry => entry.name.length))
   for (const entry of entries) {
-    const mark = entry.installed ? 'installed' : '         '
+    const mark = !entry.installed ? '         ' : parked.has(entry.name) ? 'disabled ' : 'installed'
     const version = entry.version ?? '-'
     io.out(`  ${mark}  ${pad(entry.name, width)}  ${pad(version, 8)}  ${entry.source}`)
   }
@@ -440,6 +455,8 @@ export async function run(argv: readonly string[], io: Output = stdio): Promise<
 
   if (parsed.command === 'add') return addCommand(parsed.targets, catalog, profile, installer, settled, options, io)
   if (parsed.command === 'update') return updateCommand(parsed.targets, catalog, profile, installer, settled, options, io)
+  if (parsed.command === 'enable') return toggleCommand(parsed.targets, profile, installer, settled, options, io, true)
+  if (parsed.command === 'disable') return toggleCommand(parsed.targets, profile, installer, settled, options, io, false)
   return removeCommand(parsed.targets, profile, installer, settled, options, io)
 }
 
@@ -462,7 +479,12 @@ async function listCommand(
     return 0
   }
   io.out(`${PROGRAM}: profile ${profile.name} · ${String(document.entries.length)} plugins offered`)
-  printCatalog(document.entries, io)
+  const parked = new Set(
+    listInstalled(profile.dir, readProfileManifest(profile.dir))
+      .filter(entry => !entry.enabled)
+      .map(entry => entry.name),
+  )
+  printCatalog(document.entries, parked, io)
   let broken = 0
   for (const source of document.sources) {
     if (source.error === undefined) continue
@@ -492,7 +514,7 @@ async function addCommand(
   /** Every argument resolved before anything is installed, so a typo costs no writes. */
   const planned: { name: string; spec: string }[] = []
   let entries: readonly CatalogEntry[] | undefined
-  const held = new Set(readProfileManifest(profile.dir).bundles)
+  const held = new Set(installedNames(profile))
 
   for (const target of targets) {
     const classified = classifyTarget(target)
@@ -563,7 +585,7 @@ async function updateCommand(
   options: CliOptions,
   io: Output,
 ): Promise<number> {
-  const held = new Set(readProfileManifest(profile.dir).bundles)
+  const held = new Set(installedNames(profile))
   const planned: { name: string; spec: string; version?: string | undefined }[] = []
   let entries: readonly CatalogEntry[] | undefined
 
@@ -615,6 +637,53 @@ async function updateCommand(
   return reportOperations(settled, 'updated', options, io)
 }
 
+/** `enable` / `disable`: rewrite the layer stack, leave the package on disk. */
+async function toggleCommand(
+  targets: readonly string[],
+  profile: ResolvedProfile,
+  installer: Installer,
+  settled: OperationState[],
+  options: CliOptions,
+  io: Output,
+  enabled: boolean,
+): Promise<number> {
+  const verb = enabled ? 'enable' : 'disable'
+  const held = listInstalled(profile.dir, readProfileManifest(profile.dir))
+  const names = held.map(entry => entry.name)
+  const planned: string[] = []
+  for (const target of targets) {
+    const classified = classifyTarget(target)
+    if (classified.kind !== 'name') {
+      io.err(`${PROGRAM}: ${verb} takes a package name, not a specifier — ${JSON.stringify(target)}`)
+      return 2
+    }
+    const matched = matchName(classified.name, names)
+    if (matched.kind === 'none') {
+      io.err(`${PROGRAM}: profile ${profile.name} has no plugin named ${JSON.stringify(classified.name)}`)
+      return 1
+    }
+    if (matched.kind === 'many') {
+      io.err(`${PROGRAM}: ${JSON.stringify(classified.name)} matches ${matched.names.join(', ')} — name one in full`)
+      return 1
+    }
+    const entry = held.find(candidate => candidate.name === matched.name)
+    if (entry !== undefined && !entry.toggleable) {
+      io.err(matched.name === HUB_PACKAGE_NAME
+        ? `${PROGRAM}: ${matched.name} is the plugin hub and cannot be disabled`
+        : `${PROGRAM}: ${matched.name} came with the profile rather than as a dependency, so it cannot be disabled from here`)
+      return 1
+    }
+    planned.push(matched.name)
+  }
+
+  for (const name of planned) {
+    if (!options.json) io.out(`${PROGRAM}: ${enabled ? 'enabling' : 'disabling'} ${name}`)
+    installer.setEnabled(name, enabled)
+  }
+  await installer.drain()
+  return reportOperations(settled, enabled ? 'enabled' : 'disabled', options, io)
+}
+
 /** `remove`: hand every name to the launcher, which owns the bundle list. */
 async function removeCommand(
   targets: readonly string[],
@@ -624,7 +693,7 @@ async function removeCommand(
   options: CliOptions,
   io: Output,
 ): Promise<number> {
-  const held = new Set(readProfileManifest(profile.dir).bundles)
+  const held = new Set(installedNames(profile))
   const planned: string[] = []
   for (const target of targets) {
     const classified = classifyTarget(target)
@@ -634,11 +703,19 @@ async function removeCommand(
     }
     const matched = matchName(classified.name, [...held])
     if (matched.kind === 'none') {
-      io.err(`${PROGRAM}: profile ${profile.name} has no bundle named ${JSON.stringify(classified.name)}`)
+      io.err(`${PROGRAM}: profile ${profile.name} has no plugin named ${JSON.stringify(classified.name)}`)
       return 1
     }
     if (matched.kind === 'many') {
       io.err(`${PROGRAM}: ${JSON.stringify(classified.name)} matches ${matched.names.join(', ')} — name one in full`)
+      return 1
+    }
+    const entry = listInstalled(profile.dir, readProfileManifest(profile.dir))
+      .find(candidate => candidate.name === matched.name)
+    if (entry !== undefined && !entry.removable) {
+      io.err(matched.name === HUB_PACKAGE_NAME
+        ? `${PROGRAM}: ${matched.name} is the plugin hub and cannot be uninstalled`
+        : `${PROGRAM}: ${matched.name} came with the profile rather than as a dependency, so it cannot be removed from here`)
       return 1
     }
     planned.push(matched.name)

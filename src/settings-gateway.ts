@@ -17,8 +17,11 @@
  * It owns transport and one allowlist. It owns NO settings logic: resolution,
  * schema validation, the base/user layering, secret redaction, revisions, and
  * commits all stay in `ctx.settings`, and this reads what that already
- * computed. `describe({ redactSecrets: true })` is what strips the secrets —
- * this module never sees one.
+ * computed. `describe({ redactSecrets: true })` is what strips the secrets
+ * from every wire view. This module does read an unredacted describe once,
+ * Host-side only, to recover whether a secret path is present in the user
+ * layer — redaction deletes that key, and a form cannot mark the field
+ * overridden without it. The values themselves never leave this file.
  *
  * ## The allowlist
  *
@@ -33,6 +36,13 @@
 import type {
   InstalledEntry, SettingsDocument, SettingsNamespaceView, SettingsPathOp, SettingsSecretView,
 } from './contract.ts'
+import { isOverridden } from './settings-path.ts'
+
+/** One schema-declared secret position as the seam reports it. */
+interface SeamSecretSlot {
+  readonly path: readonly string[]
+  readonly set: boolean
+}
 
 /** One descriptor as the settings seam produces it. */
 export interface SettingsDescriptorLike {
@@ -43,7 +53,7 @@ export interface SettingsDescriptorLike {
   readonly base?: unknown
   readonly user?: unknown
   readonly applies: 'live' | 'restart'
-  readonly secrets?: readonly SettingsSecretView[]
+  readonly secrets?: readonly SeamSecretSlot[]
 }
 
 /** The settings seam, as much of it as this gateway uses. */
@@ -89,9 +99,17 @@ export function ownedNamespaces(entries: readonly InstalledEntry[]): Set<string>
 /**
  * Project one descriptor onto the wire.
  * @param descriptor - the seam's descriptor, already redacted.
+ * @param rawUser - the unredacted user layer, Host-side only, so secret
+ *   override can be recovered after redaction deleted the key. Never copied
+ *   onto the view.
  * @returns the wire view.
  */
-export function toNamespaceView(descriptor: SettingsDescriptorLike): SettingsNamespaceView {
+export function toNamespaceView(descriptor: SettingsDescriptorLike, rawUser?: unknown): SettingsNamespaceView {
+  const secrets: SettingsSecretView[] = (descriptor.secrets ?? []).map(slot => ({
+    path: slot.path,
+    set: slot.set,
+    overridden: isOverridden(rawUser, slot.path),
+  }))
   return {
     ns: descriptor.ns,
     schema: descriptor.schema,
@@ -101,9 +119,24 @@ export function toNamespaceView(descriptor: SettingsDescriptorLike): SettingsNam
     applies: descriptor.applies,
     // Absent only when the caller forgot to redact, which this module never
     // does; an empty list is then the truthful report rather than a crash.
-    secrets: descriptor.secrets ?? [],
+    secrets,
     revision: descriptor.revision,
   }
+}
+
+/**
+ * Unredacted user layers of the owned namespaces. Read Host-side so secret
+ * presence survives; the values never leave this function.
+ * @param settings - the settings seam.
+ * @param owned - the namespaces installed plugins claim.
+ * @returns user layers by namespace.
+ */
+function rawUserByNamespace(settings: SettingsSeam, owned: ReadonlySet<string>): Map<string, unknown> {
+  const layers = new Map<string, unknown>()
+  for (const descriptor of settings.describe()) {
+    if (owned.has(descriptor.ns)) layers.set(descriptor.ns, descriptor.user)
+  }
+  return layers
 }
 
 /**
@@ -113,6 +146,7 @@ export function toNamespaceView(descriptor: SettingsDescriptorLike): SettingsNam
  * @returns the wire document.
  */
 export function describeOwned(settings: SettingsSeam, owned: ReadonlySet<string>): SettingsDocument {
+  const rawUsers = rawUserByNamespace(settings, owned)
   return {
     writable: settings.writable,
     // Reported without the path: a Host path on the wire is a Host path an
@@ -121,7 +155,7 @@ export function describeOwned(settings: SettingsSeam, owned: ReadonlySet<string>
     namespaces: settings
       .describe({ redactSecrets: true })
       .filter(descriptor => owned.has(descriptor.ns))
-      .map(toNamespaceView),
+      .map(descriptor => toNamespaceView(descriptor, rawUsers.get(descriptor.ns))),
   }
 }
 
@@ -191,5 +225,6 @@ export async function writeOwned(
     // storage; reporting the value would need one that no longer exists.
     return { status: 'rejected', message: `settings namespace "${request.ns}" is no longer registered` }
   }
-  return { status: 'ok', namespace: toNamespaceView(descriptor) }
+  const raw = settings.describe().find(candidate => candidate.ns === request.ns)
+  return { status: 'ok', namespace: toNamespaceView(descriptor, raw?.user) }
 }

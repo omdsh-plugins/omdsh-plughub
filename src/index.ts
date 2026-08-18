@@ -30,15 +30,21 @@
  * that one namespace beside the catalog rather than in the installed list,
  * because these fields are the answer to "where does this list come from".
  *
- * ## Install, update, remove
+ * ## Install, update, remove, enable, disable
  *
- * Three write routes, all of them one `dsh plugin` run. An update is the same
- * `add` an install is — `pnpm` re-resolves a dependency that is already there
- * — and it exists as its own route because the preconditions are opposite (an
+ * Three write routes shell out to `dsh plugin`. An update is the same `add`
+ * an install is — `pnpm` re-resolves a dependency that is already there —
+ * and it exists as its own route because the preconditions are opposite (an
  * install refuses what the profile has; an update requires it) and because a
  * button, a log line, and a failure all read better for saying which one
  * happened. Whether an update is OFFERED is decided in `version.ts`, from the
  * version the catalog resolved and the version on disk.
+ *
+ * Enable and disable do not fetch anything. They rewrite `dsh.profile.bundles`
+ * and a parked list beside it, so a plugin can leave the composed stack
+ * without leaving `node_modules`. The next boot is what makes that real;
+ * `dsh plugin` reconciliation would put a parked name back, which is why
+ * every successful install/update/remove runs the strip again.
  *
  * ## The reach
  *
@@ -54,8 +60,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import Schema from '@deepseek-ai/schemastery'
 import {
-  CATALOG_PATH, EVENTS_PATH, HUB_SETTINGS_NAMESPACE, INSTALL_PATH, INSTALLED_PATH, SETTINGS_PATH,
-  UNINSTALL_PATH, UPDATE_PATH,
+  CATALOG_PATH, ENABLED_PATH, EVENTS_PATH, HUB_PACKAGE_NAME, HUB_SETTINGS_NAMESPACE,
+  INSTALL_PATH, INSTALLED_PATH, SETTINGS_PATH, UNINSTALL_PATH, UPDATE_PATH,
   type CatalogDocument, type InstalledDocument, type OperationState, type PlughubEvent,
 } from './contract.ts'
 import { Catalog, catalogOptions, type InstalledFacts } from './catalog/index.ts'
@@ -68,7 +74,7 @@ import {
   describeOwned, ownedNamespaces, readOps, writeOwned, type SettingsSeam,
 } from './settings-gateway.ts'
 import {
-  isRestartRequired, listInstalled, readProfileManifest, resolveHome, resolveProfile,
+  applyDisabled, isRestartRequired, listInstalled, readProfileManifest, resolveHome, resolveProfile,
   ProfileResolutionError, type ResolvedProfile,
 } from './profile.ts'
 import { isLoopbackRequest, isTrustedRequest } from './trust-fence.ts'
@@ -87,7 +93,8 @@ export {
   type SettingsDescriptorLike, type SettingsSeam, type WriteResult,
 } from './settings-gateway.ts'
 export {
-  isRestartRequired, listInstalled, readProfileManifest, resolveHome, resolveProfile,
+  applyDisabled, forgetDisabled, isRestartRequired, listInstalled, pluginActions,
+  readProfileManifest, resolveHome, resolveProfile, setEnabled,
   profileFromBaseUrl, profileFromDirectory, isProfileDirectory, resolvePackageDir,
 } from './profile.ts'
 export { isLoopbackHostname, isLoopbackRequest, isTrustedRequest } from './trust-fence.ts'
@@ -323,6 +330,7 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
 
   // The launcher composed the tree from this list; anything else on disk later
   // is drift only a restart can settle.
+  if (profile !== undefined) applyDisabled(profile.dir)
   const bootBundles = profile === undefined ? [] : readProfileManifest(profile.dir).bundles
 
   /** The active configuration: the settings layer while one is attached, else the entry. */
@@ -347,7 +355,7 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
 
   /** The current profile manifest, re-read per request: another terminal may have written it. */
   const manifest = (): ReturnType<typeof readProfileManifest> =>
-    profile === undefined ? { bundles: [] } : readProfileManifest(profile.dir)
+    profile === undefined ? { bundles: [], disabled: [] } : readProfileManifest(profile.dir)
 
   /**
    * Whether an update has landed in this runtime.
@@ -504,6 +512,10 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
         sendJson(res, 503, { error: profileError ?? 'omdsh-plughub: no profile resolved' })
         return
       }
+      // A `dsh plugin` run from another terminal puts parked names back on
+      // the stack; this is the read that notices, so the strip happens here
+      // rather than only after this panel's own writes.
+      applyDisabled(profile.dir)
       const document: InstalledDocument = {
         profile: profile.name,
         entries: listInstalled(profile.dir, manifest()),
@@ -534,7 +546,7 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
         sendJson(res, 404, { error: `the catalog offers no plugin named ${JSON.stringify(id)}` })
         return
       }
-      if (manifest().bundles.includes(merged.entry.name)) {
+      if (listInstalled(ready.profile.dir, manifest()).some(entry => entry.name === merged.entry.name)) {
         sendJson(res, 409, { error: `${merged.entry.name} is already installed` })
         return
       }
@@ -558,7 +570,7 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
       // Installed FIRST: updating something this profile does not have is an
       // install wearing the wrong name, and the two routes have opposite
       // preconditions on purpose.
-      if (!manifest().bundles.includes(target)) {
+      if (!listInstalled(ready.profile.dir, manifest()).some(entry => entry.name === target)) {
         sendJson(res, 409, { error: `${target} is not installed in this profile` })
         return
       }
@@ -595,16 +607,65 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
         return
       }
       if (!entry.removable) {
-        // A template bundle is not a dependency, so `pnpm remove` would report
-        // success and change nothing — worse than refusing.
+        // The hub must stay installed: it is the only UI that puts plugins
+        // back. A template bundle is not a dependency, so `pnpm remove` would
+        // report success and change nothing — worse than refusing.
         sendJson(res, 409, {
-          error: `${target} came with the profile rather than as a dependency, so it cannot be removed from here`,
+          error: target === HUB_PACKAGE_NAME
+            ? `${target} is the plugin hub and cannot be uninstalled`
+            : `${target} came with the profile rather than as a dependency, so it cannot be removed from here`,
         })
         return
       }
       sendJson(res, 202, { operation: ready.installer.uninstall(target) })
     },
   }), 'omdsh-plughub: uninstall route')
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: ENABLED_PATH,
+    handler: async (req, res) => {
+      if (!guardWrite(req, res, 'enabling or disabling a plugin')) return
+      if (req.method !== 'POST') {
+        sendJson(res, 405, { error: 'an enable or disable is posted' })
+        return
+      }
+      const ready = writable(res)
+      if (ready === undefined) return
+      const body = await readBody(req)
+      if (body === undefined) {
+        sendJson(res, 413, { error: 'the request body is too large' })
+        return
+      }
+      let payload: Record<string, unknown>
+      try {
+        payload = JSON.parse(body) as Record<string, unknown>
+      } catch {
+        sendJson(res, 400, { error: 'the request is not JSON' })
+        return
+      }
+      const target = payload['name']
+      const enabled = payload['enabled']
+      if (typeof target !== 'string' || target === '' || typeof enabled !== 'boolean') {
+        sendJson(res, 400, { error: 'the request names a name and an enabled flag' })
+        return
+      }
+      const entry = listInstalled(ready.profile.dir, manifest()).find(candidate => candidate.name === target)
+      if (entry === undefined) {
+        sendJson(res, 404, { error: `${target} is not installed in this profile` })
+        return
+      }
+      if (!entry.toggleable) {
+        sendJson(res, 409, {
+          error: target === HUB_PACKAGE_NAME
+            ? `${target} is the plugin hub and cannot be disabled`
+            : `${target} came with the profile rather than as a dependency, so it cannot be disabled from here`,
+        })
+        return
+      }
+      sendJson(res, 202, { operation: ready.installer.setEnabled(target, enabled) })
+    },
+  }), 'omdsh-plughub: enabled route')
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',

@@ -10,8 +10,8 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  CATALOG_PATH, EVENTS_PATH, HUB_SETTINGS_NAMESPACE, INSTALL_PATH, INSTALLED_PATH, ROUTE_PREFIX,
-  SETTINGS_PATH, SOURCE_PRECEDENCE, UNINSTALL_PATH, UPDATE_PATH,
+  CATALOG_PATH, ENABLED_PATH, EVENTS_PATH, HUB_SETTINGS_NAMESPACE, INSTALL_PATH, INSTALLED_PATH,
+  ROUTE_PREFIX, SETTINGS_PATH, SOURCE_PRECEDENCE, UNINSTALL_PATH, UPDATE_PATH,
 } from '../src/contract.ts'
 import { Config, SETTINGS_NAMESPACE, inject, name } from '../src/index.ts'
 import { NS, PLUGIN_CARD_SLOT, TAB_ID, TAB_ORDER, TAB_SLOT } from '../src/client/slot-contract.ts'
@@ -37,7 +37,8 @@ describe('host plugin', () => {
 describe('routes', () => {
   it('all sit under one prefix', () => {
     const paths = [
-      CATALOG_PATH, INSTALLED_PATH, INSTALL_PATH, UPDATE_PATH, UNINSTALL_PATH, EVENTS_PATH, SETTINGS_PATH,
+      CATALOG_PATH, INSTALLED_PATH, INSTALL_PATH, UPDATE_PATH, UNINSTALL_PATH, ENABLED_PATH,
+      EVENTS_PATH, SETTINGS_PATH,
     ]
     for (const path of paths) {
       expect(path.startsWith(`${ROUTE_PREFIX}/`)).toBe(true)
@@ -50,6 +51,7 @@ describe('routes', () => {
     expect(INSTALL_PATH).toBe('/api/plughub/install')
     expect(UPDATE_PATH).toBe('/api/plughub/update')
     expect(UNINSTALL_PATH).toBe('/api/plughub/uninstall')
+    expect(ENABLED_PATH).toBe('/api/plughub/enabled')
     expect(EVENTS_PATH).toBe('/api/plughub/events')
     expect(SETTINGS_PATH).toBe('/api/plughub/settings')
   })

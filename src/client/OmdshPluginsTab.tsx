@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { IconSearchOutline16, IconWarningOutline16, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconWarningOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { HUB_SETTINGS_NAMESPACE } from '../contract.ts'
@@ -42,6 +42,8 @@ export interface OmdshPluginsTabInjected {
   readonly update: (name: string) => Promise<void>
   /** Ask the Host to remove one installed plugin. */
   readonly uninstall: (name: string) => Promise<void>
+  /** Ask the Host to compose or park one installed plugin, without fetching. */
+  readonly setEnabled: (name: string, enabled: boolean) => Promise<void>
   /** Write one settings field. */
   readonly writeSetting: (
     ns: string,
@@ -112,7 +114,7 @@ type ViewState =
 export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
   const {
     t, renderSlot,
-    catalog, installed, describeSettings, install, update, uninstall, writeSetting,
+    catalog, installed, describeSettings, install, update, uninstall, setEnabled, writeSetting,
     subscribeOperations, canWrite, cardIds, activeLocale,
   } = props
   const translate = t as Translate
@@ -124,8 +126,8 @@ export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
   const [operations, setOperations] = useState<readonly OperationState[]>([])
   const [restartRequired, setRestartRequired] = useState(false)
   // One needle for Available and Installed. Owned here because neither
-  // region can filter the other, and a field that lived under one heading
-  // would read as searching only that heading.
+  // region can filter the other; the field itself sits in Available's
+  // heading, beside the count it changes.
   const [query, setQuery] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState<string | undefined>(undefined)
@@ -212,6 +214,13 @@ export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
       setNotice(translate('writeFailed', { error: error instanceof Error ? error.message : String(error) }))
     })
   }, [uninstall, translate])
+
+  const onSetEnabled = useCallback((packageName: string, enabled: boolean) => {
+    setNotice(undefined)
+    void setEnabled(packageName, enabled).catch((error: unknown) => {
+      setNotice(translate('writeFailed', { error: error instanceof Error ? error.message : String(error) }))
+    })
+  }, [setEnabled, translate])
 
   /** Apply one settings edit, resolving a stale revision by re-reading. */
   const write = useCallback((ns: string, ops: readonly SettingsPathOp[]) => {
@@ -311,34 +320,19 @@ export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
         onSet={onSourceSet}
         onUnset={onSourceUnset}
       />
-      {/* One field, both lists. A plugin that is only on the profile — a
-          built-in bundle, a checkout the catalog never offered — is still
-          findable, and a name typed here is not lost when the eye moves
-          from Available to Installed. */}
-      <label className={css.searchBar}>
-        <span className={css.visuallyHidden}>{translate('search')}</span>
-        <Input
-          type="search"
-          icon={<IconSearchOutline16 aria-hidden="true" />}
-          value={query}
-          placeholder={translate('search')}
-          aria-label={translate('search')}
-          onChange={(event) => { setQuery(event.currentTarget.value) }}
-        />
-      </label>
       <CatalogSection
         entries={data.catalog.entries}
         sources={data.catalog.sources}
         locale={active}
         t={translate}
         query={query}
+        onQuery={setQuery}
         onRefresh={onRefresh}
         refreshing={refreshing}
         writable={canWrite}
         operationFor={packageName => operationFor(operations, packageName)}
         onInstall={onInstall}
         onUpdate={onUpdate}
-        onUninstall={onUninstall}
       />
       <InstalledSection
         entries={data.installed.entries}
@@ -354,6 +348,20 @@ export function OmdshPluginsTab(props: OmdshPluginsTabProps): ReactNode {
           : undefined)}
         onSet={onSet}
         onUnset={onUnset}
+        canWrite={canWrite}
+        operationFor={packageName => operationFor(operations, packageName)}
+        onUninstall={onUninstall}
+        onSetEnabled={onSetEnabled}
+        offeredFor={name => {
+          const catalogEntry = data.catalog.entries.find(entry => entry.name === name)
+          if (catalogEntry === undefined) return undefined
+          return {
+            ...catalogEntry.update === undefined ? {} : { update: catalogEntry.update },
+            ...catalogEntry.version === undefined ? {} : { version: catalogEntry.version },
+            ...catalogEntry.installedVersion === undefined ? {} : { installedVersion: catalogEntry.installedVersion },
+          }
+        }}
+        onUpdate={onUpdate}
         notice={notice}
       />
     </div>
