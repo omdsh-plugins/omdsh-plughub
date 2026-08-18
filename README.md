@@ -359,7 +359,7 @@ flags with the same defaults the schema declares. `--help` lists them.
 | Schema node | Control |
 |---|---|
 | `string` | Text field |
-| `string` with `role('secret')` | Write-only field; the Host reports only whether a value is stored |
+| `string` with `role('secret')` | Write-only field, masked once a value is stored; the Host reports only whether one is |
 | `number` | Number field, honoring `min` / `max` / `step` |
 | `boolean` | Checkbox |
 | `union` of constants | Select |

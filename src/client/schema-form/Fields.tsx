@@ -133,6 +133,16 @@ function StringField(props: FieldProps): ReactNode {
   )
 }
 
+/**
+ * What a stored secret looks like in a box that cannot hold it.
+ *
+ * It is a placeholder rather than a value, which is the whole point: a
+ * placeholder is not a draft, so there is no path by which the mask itself is
+ * ever submitted as the key. An empty box reads as "nothing configured" no
+ * matter what the hint underneath says.
+ */
+const SECRET_MASK = '••••••••'
+
 /** A write-only line: what is stored was never sent here. */
 function SecretField(props: FieldProps): ReactNode {
   const [draft, setDraft] = useState('')
@@ -145,6 +155,7 @@ function SecretField(props: FieldProps): ReactNode {
       <Input
         type="password"
         value={draft}
+        placeholder={props.secretSet ? SECRET_MASK : undefined}
         autoComplete="off"
         disabled={!props.writable || props.field.disabled}
         aria-label={props.field.label}

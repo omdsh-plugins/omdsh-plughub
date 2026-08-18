@@ -310,7 +310,7 @@ bundle、同一次重启。
 | schema 节点 | 控件 |
 |---|---|
 | `string` | 文本框 |
-| 带 `role('secret')` 的 `string` | 只写输入框；Host 只报告有没有存过值 |
+| 带 `role('secret')` 的 `string` | 只写输入框，存过值以后显示为掩码；Host 只报告有没有存过 |
 | `number` | 数字框，遵守 `min` / `max` / `step` |
 | `boolean` | 复选框 |
 | 常量 `union` | 下拉选择 |
