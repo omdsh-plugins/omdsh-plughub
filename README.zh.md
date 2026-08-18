@@ -277,10 +277,10 @@ omdsh-plughub update omdsh-status      # 挪到目录里那个版本
 omdsh-plughub remove omdsh-status      # 卸一个
 ```
 
-它存在的理由就是上一节。只有这个包从 npm 装；集合里其余每一个插件都从 GitHub 装，
-而 git 安装就没有一条能用的 `dsh plugin add`——pnpm 要的那个 allowlist key 里带着
-它解析出来的 commit，只能从报错里抄，事先写不出来。这个包一直知道该怎么应付，只
-是在此之前它只应答一个按钮。
+它存在的理由就是上一节。集合里从 npm 装的有两个——这个包，以及 `omdsh-basemode`。
+其余每一个插件都从 GitHub 装，而 git 安装就没有一条能用的 `dsh plugin add`——pnpm
+要的那个 allowlist key 里带着它解析出来的 commit，只能从报错里抄，事先写不出来。
+这个包一直知道该怎么应付，只是在此之前它只应答一个按钮。
 
 这里没有第二套实现。命令解析的是同一份目录，从里面取出同一个 specifier，交给同一
 个 `Installer`——所以从终端装上的插件和从页签装上的插件，是同一条依赖、同一行

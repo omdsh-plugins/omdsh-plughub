@@ -324,12 +324,13 @@ omdsh-plughub update omdsh-status      # move it to the version the catalog offe
 omdsh-plughub remove omdsh-status      # and remove it
 ```
 
-It exists because of the paragraph above. Only this package installs from npm;
-every other plugin in the collection installs from GitHub, and a git install
-has no working `dsh plugin add` line — the allowlist key pnpm demands carries
-the commit it resolved, so it can be copied out of a failure and never written
-down in advance. This package has always known how to answer that, and until
-now it answered only to a button.
+It exists because of the paragraph above. Two packages in the collection
+install from npm — this one, and `omdsh-basemode`. Every other plugin
+installs from GitHub, and a git install has no working `dsh plugin add` line
+— the allowlist key pnpm demands carries the commit it resolved, so it can
+be copied out of a failure and never written down in advance. This package
+has always known how to answer that, and until now it answered only to a
+button.
 
 Nothing here is a second implementation. The command resolves the same catalog,
 takes the same specifier out of it, and hands it to the same `Installer` — so a
