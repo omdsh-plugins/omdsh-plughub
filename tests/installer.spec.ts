@@ -12,7 +12,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { HUB_PACKAGE_NAME, type OperationState } from '../src/contract.ts'
+import { HUB_PACKAGE_NAME, MODE_PACKAGE_NAME, type OperationState } from '../src/contract.ts'
 import {
   allowBuild, blockedBuilds, boundLog, gitBuildKey, ignoredBuildNames, Installer, isLauncherEntry,
   resolveLauncher, updateSpec, withAllowBuild,
@@ -554,11 +554,11 @@ describe('Installer', () => {
     expect(restored.dsh.profile.disabled).toBeUndefined()
   })
 
-  it('refuses to disable or uninstall the hub', async () => {
+  it('refuses to disable or uninstall the hub or the mode system', async () => {
     const dir = scratch()
     writeFileSync(join(dir, 'package.json'), JSON.stringify({
-      dependencies: { [HUB_PACKAGE_NAME]: '^1.0.0' },
-      dsh: { profile: { bundles: [HUB_PACKAGE_NAME] } },
+      dependencies: { [HUB_PACKAGE_NAME]: '^1.0.0', [MODE_PACKAGE_NAME]: '^1.0.0' },
+      dsh: { profile: { bundles: [HUB_PACKAGE_NAME, MODE_PACKAGE_NAME] } },
     }))
     const run = stubRunner()
     const sink = collector()
@@ -570,11 +570,22 @@ describe('Installer', () => {
     await installer.drain()
     expect(sink.states.at(-1)?.status).toBe('failed')
     expect(sink.states.at(-1)?.error).toContain('cannot be disabled')
+
+    installer.setEnabled(MODE_PACKAGE_NAME, false)
+    await installer.drain()
+    expect(sink.states.at(-1)?.status).toBe('failed')
+    expect(sink.states.at(-1)?.error).toContain('cannot be disabled')
     expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))).toMatchObject({
-      dsh: { profile: { bundles: [HUB_PACKAGE_NAME] } },
+      dsh: { profile: { bundles: [HUB_PACKAGE_NAME, MODE_PACKAGE_NAME] } },
     })
 
     installer.uninstall(HUB_PACKAGE_NAME)
+    await installer.drain()
+    expect(run.calls).toEqual([])
+    expect(sink.states.at(-1)?.status).toBe('failed')
+    expect(sink.states.at(-1)?.error).toContain('cannot be uninstalled')
+
+    installer.uninstall(MODE_PACKAGE_NAME)
     await installer.drain()
     expect(run.calls).toEqual([])
     expect(sink.states.at(-1)?.status).toBe('failed')

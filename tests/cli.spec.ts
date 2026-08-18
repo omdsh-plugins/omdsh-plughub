@@ -20,7 +20,7 @@ import {
   classifyTarget, HELP, isEntryPoint, isUsageError, matchName, parseArgs, PROGRAM, run,
   type Output,
 } from '../src/cli.ts'
-import { DEFAULT_PROFILE, DEFAULT_UPSTREAM } from '../src/defaults.ts'
+import { DEFAULT_PROFILE, DEFAULT_REGISTRY_URL, DEFAULT_UPSTREAM } from '../src/defaults.ts'
 
 /** An {@link Output} plus the two transcripts it wrote. */
 function sink(): { io: Output; out: string[]; err: string[] } {
@@ -30,13 +30,14 @@ function sink(): { io: Output; out: string[]; err: string[] } {
 }
 
 describe('parseArgs', () => {
-  it('defaults the profile and the upstream when neither is named', () => {
+  it('defaults the profile and the catalog sources when neither is named', () => {
     const parsed = parseArgs(['list'])
     expect(isUsageError(parsed)).toBe(false)
     if (isUsageError(parsed)) return
     expect(parsed.command).toBe('list')
     expect(parsed.options.profile).toBe(DEFAULT_PROFILE)
     expect(parsed.options.upstream).toBe(DEFAULT_UPSTREAM)
+    expect(parsed.options.registryUrl).toBe(DEFAULT_REGISTRY_URL)
   })
 
   it('reads a flag as `--flag value` and as `--flag=value` alike', () => {

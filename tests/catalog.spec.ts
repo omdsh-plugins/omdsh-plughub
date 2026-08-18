@@ -14,6 +14,7 @@ import { readRegistryDocument, readRegistryRow, defaultRegistryUrl } from '../sr
 import { readRepoListing } from '../src/catalog/github.ts'
 import { scanLocalSource } from '../src/catalog/local.ts'
 import { isGitSpec, isInstallableSpec, isPackageName, type SourceEntry, type SourceResult } from '../src/catalog/source.ts'
+import { DEFAULT_REGISTRY_URL, DEFAULT_UPSTREAM } from '../src/defaults.ts'
 
 const temporaries: string[] = []
 
@@ -361,9 +362,10 @@ describe('Catalog', () => {
   })
 
   it('reads a missing DERIVED manifest as an upstream that publishes none', async () => {
-    // The default configuration's shape: no registryUrl, so the hub guesses one
-    // from the account. An account with no `registry` repository is the
-    // ordinary case, and enumeration is what covers it.
+    // No registryUrl, so the hub guesses one from the account. An account with
+    // no `registry` repository is the ordinary case, and enumeration is what
+    // covers it. (The shipped default is the opposite: an explicit CDN URL and
+    // no account, so a 404 there is a real failure.)
     const fetchImpl = vi.fn(async (url: string) => url.startsWith('https://raw.githubusercontent.com/')
       ? { ok: false, status: 404, text: () => Promise.resolve('404: Not Found') }
       : { ok: true, status: 200, text: () => Promise.resolve('[]') })
@@ -407,6 +409,21 @@ describe('Catalog', () => {
 })
 
 describe('catalogOptions', () => {
+  it('ships the curated CDN manifest and does not enumerate GitHub', () => {
+    const resolved = catalogOptions({
+      upstream: DEFAULT_UPSTREAM,
+      registryUrl: DEFAULT_REGISTRY_URL,
+      localSources: [],
+      maxRepos: 1,
+      timeoutMs: 1,
+    })
+    expect(resolved.upstream).toBe('')
+    expect(resolved.registryUrl).toBe(DEFAULT_REGISTRY_URL)
+    // An explicit URL, so a 404 is a real failure rather than "this account
+    // publishes no manifest".
+    expect(resolved.registryDerived).toBe(false)
+  })
+
   it('derives the registry url from the upstream account', () => {
     const resolved = catalogOptions({ upstream: 'omdsh-plugins', localSources: [], maxRepos: 1, timeoutMs: 1 })
     expect(resolved.registryUrl).toBe('https://raw.githubusercontent.com/omdsh-plugins/registry/HEAD/registry.json')

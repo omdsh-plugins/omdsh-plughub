@@ -53,13 +53,13 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Catalog, catalogOptions, isInstallableSpec, isPackageName, type InstalledFacts } from './catalog/index.ts'
-import { HUB_PACKAGE_NAME, type CatalogEntry, type OperationState } from './contract.ts'
+import { type CatalogEntry, type OperationState } from './contract.ts'
 import {
   DEFAULT_CACHE_TTL_MS, DEFAULT_MAX_REPOS, DEFAULT_PROFILE,
   DEFAULT_REGISTRY_URL, DEFAULT_TIMEOUT_MS, DEFAULT_UPSTREAM,
 } from './defaults.ts'
 import { Installer } from './installer.ts'
-import { listInstalled, profileFromDirectory, readProfileManifest, resolveHome, type ResolvedProfile } from './profile.ts'
+import { listInstalled, profileFromDirectory, readProfileManifest, refuseDisable, refuseRemove, resolveHome, type ResolvedProfile } from './profile.ts'
 
 /** The program name in every message; it is also the `bin` key. */
 export const PROGRAM = 'omdsh-plughub'
@@ -345,8 +345,8 @@ A plugin is a package name (@omdsh-plugins/omdsh-status), its last segment
 
 Options:
   -p, --profile <name>     profile to install into (default: ${DEFAULT_PROFILE})
-      --upstream <account> GitHub account the catalog enumerates (default: ${DEFAULT_UPSTREAM})
-      --registry-url <url> catalog manifest; empty derives it from --upstream
+      --upstream <account> GitHub account the catalog enumerates; empty disables
+      --registry-url <url> catalog manifest (default: ${DEFAULT_REGISTRY_URL})
       --local-source <dir> directory of checkouts to offer; repeatable
       --github-token <tok> lifts the anonymous enumeration rate limit ($GITHUB_TOKEN)
       --max-repos <n>      most repositories enumerated (default: ${String(DEFAULT_MAX_REPOS)})
@@ -668,9 +668,7 @@ async function toggleCommand(
     }
     const entry = held.find(candidate => candidate.name === matched.name)
     if (entry !== undefined && !entry.toggleable) {
-      io.err(matched.name === HUB_PACKAGE_NAME
-        ? `${PROGRAM}: ${matched.name} is the plugin hub and cannot be disabled`
-        : `${PROGRAM}: ${matched.name} came with the profile rather than as a dependency, so it cannot be disabled from here`)
+      io.err(`${PROGRAM}: ${refuseDisable(matched.name)}`)
       return 1
     }
     planned.push(matched.name)
@@ -713,9 +711,7 @@ async function removeCommand(
     const entry = listInstalled(profile.dir, readProfileManifest(profile.dir))
       .find(candidate => candidate.name === matched.name)
     if (entry !== undefined && !entry.removable) {
-      io.err(matched.name === HUB_PACKAGE_NAME
-        ? `${PROGRAM}: ${matched.name} is the plugin hub and cannot be uninstalled`
-        : `${PROGRAM}: ${matched.name} came with the profile rather than as a dependency, so it cannot be removed from here`)
+      io.err(`${PROGRAM}: ${refuseRemove(matched.name)}`)
       return 1
     }
     planned.push(matched.name)

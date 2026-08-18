@@ -13,11 +13,19 @@
  * @module @omdsh-plugins/omdsh-plughub/defaults
  */
 
-/** GitHub account enumerated when no registry manifest is configured. */
-export const DEFAULT_UPSTREAM = 'omdsh-plugins'
+/** GitHub account enumerated when no registry manifest is configured. Empty disables enumeration. */
+export const DEFAULT_UPSTREAM = ''
 
-/** Curated manifest URL; empty derives it from {@link DEFAULT_UPSTREAM}. */
-export const DEFAULT_REGISTRY_URL = ''
+/**
+ * Curated manifest URL.
+ *
+ * The collection already publishes every plugin in one file, and GitHub's raw
+ * host plus API are the slow half of opening the tab — so the default is that
+ * file, served from a CDN that caches GitHub, with enumeration off. Empty
+ * derives the URL from {@link DEFAULT_UPSTREAM} instead
+ * (`https://raw.githubusercontent.com/<account>/registry/HEAD/registry.json`).
+ */
+export const DEFAULT_REGISTRY_URL = 'https://cdn.jsdmirror.com/gh/omdsh-plugins/registry/registry.json'
 
 /** Most repositories examined when enumerating an account. */
 export const DEFAULT_MAX_REPOS = 100

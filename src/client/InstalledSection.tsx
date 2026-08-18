@@ -19,8 +19,8 @@
  * current, linked, or unknown. Disable leaves the package on disk, so using
  * it again is Enable rather than another install. Built-in profile bundles
  * stay without Remove — `removable` is already false for those, which is the
- * same rule the Host uses. The hub itself can be updated, and cannot be
- * disabled or removed from here.
+ * same rule the Host uses. The hub and the mode system can be updated, and
+ * cannot be disabled or removed from here.
  * @module @omdsh-plugins/omdsh-plughub/client/InstalledSection
  */
 

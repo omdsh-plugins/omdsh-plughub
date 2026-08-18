@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CATALOG_PATH, ENABLED_PATH, EVENTS_PATH, HUB_SETTINGS_NAMESPACE, INSTALL_PATH, INSTALLED_PATH,
-  ROUTE_PREFIX, SETTINGS_PATH, SOURCE_PRECEDENCE, UNINSTALL_PATH, UPDATE_PATH,
+  REQUIRED_PACKAGE_NAMES, ROUTE_PREFIX, SETTINGS_PATH, SOURCE_PRECEDENCE, UNINSTALL_PATH, UPDATE_PATH,
 } from '../src/contract.ts'
 import { Config, SETTINGS_NAMESPACE, inject, name } from '../src/index.ts'
 import { NS, PLUGIN_CARD_SLOT, TAB_ID, TAB_ORDER, TAB_SLOT } from '../src/client/slot-contract.ts'
@@ -57,6 +57,15 @@ describe('routes', () => {
   })
 })
 
+describe('required plugins', () => {
+  it('names the hub and the mode system as the plugins that stay on', () => {
+    expect(REQUIRED_PACKAGE_NAMES).toEqual([
+      '@omdsh-plugins/omdsh-plughub',
+      '@omdsh-plugins/omdsh-basemode',
+    ])
+  })
+})
+
 describe('catalog precedence', () => {
   it('puts the copy you can edit above the copy somebody published', () => {
     expect(SOURCE_PRECEDENCE).toEqual(['local', 'registry', 'github'])
@@ -93,12 +102,12 @@ function properties(): Record<string, SerializedNode> {
 describe('Config', () => {
   it('resolves an empty entry to the shipped defaults', () => {
     const resolved = Config({})
-    expect(resolved.upstream).toBe('omdsh-plugins')
+    expect(resolved.upstream).toBe('')
     expect(resolved.localSources).toEqual([])
-    // Derived from the upstream at read time rather than baked in, so
-    // changing the account moves the manifest with it.
-    expect(resolved.registryUrl).toBe('')
+    expect(resolved.registryUrl).toBe('https://cdn.jsdmirror.com/gh/omdsh-plugins/registry/registry.json')
     expect(resolved.maxRepos).toBe(100)
+    // A default of `''` would make the harness report the secret as stored.
+    expect(resolved.githubToken).toBeUndefined()
   })
 
   it('describes every field, so the panel needs no dictionary for them', () => {

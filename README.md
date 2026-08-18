@@ -4,8 +4,8 @@ English | [中文](README.zh.md)
 
 A plugin hub inside the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 Settings: one more tab beside the shipped Plugins pages, listing what you can
-install from a configurable upstream, and configuring everything already
-installed.
+install from a configurable upstream, and configuring — or parking — everything
+already installed. The hub and the mode system stay on.
 
 Installing a plugin used to be `dsh plugin --profile web add <path>` in a
 terminal, and configuring one used to be editing a profile's `cordis.patch.yml`
@@ -18,7 +18,7 @@ by hand. This makes both a page.
 | A third tab in Settings → Plugins, **Plugin hub** | An entry in `settings.plugins.tab`, the seat ui-settings declares for inventory and configuration plugins |
 | The merged catalog, and what each source reported | `GET /api/plughub/catalog`, resolved from the `local`, `registry` and `github` sources |
 | Install or Update on Available; Update and Remove on Installed | `POST /api/plughub/install`, `/update` and `/uninstall`, each shelling out to `dsh plugin --profile <name>` |
-| Enable/Disable on Installed | `POST /api/plughub/enabled`, rewriting `dsh.profile.bundles` and a parked list; the package stays in `node_modules`. The hub itself can be updated, and cannot be disabled or uninstalled. |
+| Enable/Disable on Installed | `POST /api/plughub/enabled`, rewriting `dsh.profile.bundles` and a parked list; the package stays in `node_modules`. The hub and the mode system can be updated, and cannot be disabled or uninstalled. |
 | A configuration form for every installed plugin | `GET`/`POST /api/plughub/settings`, carrying `ctx.settings.describe({ redactSecrets: true })` and `ctx.settings.mutate` |
 | Operation progress and the restart banner | `GET /api/plughub/events`, an event stream |
 | The `omdsh.plugin.card` slot | `ctx.slots`, where a plugin whose control the generic form cannot draw registers its own face |
@@ -106,7 +106,7 @@ for the active locale.
 **Installed** — one row per plugin this profile has, composed or parked.
 Enable and Disable share one button: Disable takes a dependency off the layer
 stack without touching `node_modules`, so using it again is Enable rather than
-another install. Template bundles and the hub itself stay on. Expanding a row
+another install. Template bundles, the hub, and the mode system stay on. Expanding a row
 shows a form built from that plugin's settings schema; a plugin that registered
 no namespace says so, which is a real answer rather than an empty box.
 
@@ -176,15 +176,17 @@ A losing source still contributes its `repo` when the winner has none — a loca
 checkout rarely knows where it is published, and the card's link is nicer for
 it.
 
-Out of the box both remote sources point at
-[`github.com/omdsh-plugins`](https://github.com/omdsh-plugins), the account this
-collection is published under: `upstream` defaults to `omdsh-plugins`, and
-`registryUrl` derives from it as
-`https://raw.githubusercontent.com/omdsh-plugins/registry/HEAD/registry.json`.
-So installing this one plugin is the whole bootstrap — the rest of the
-collection is in the catalog the first time the tab is opened, with nothing to
-configure. Point `upstream` at your own account to publish a collection of your
-own, or empty it to run on `localSources` alone.
+Out of the box the catalog is the curated manifest this collection publishes,
+fetched from a CDN that caches GitHub:
+
+`https://cdn.jsdmirror.com/gh/omdsh-plugins/registry/registry.json`
+
+GitHub enumeration is off — `upstream` is empty — because that one file already
+lists every plugin, and asking GitHub for the account (then for each
+repository's `package.json`) is what made a fresh tab slow. Point `upstream`
+at an account to enumerate it as well, or empty `registryUrl` so the hub
+derives `https://raw.githubusercontent.com/<account>/registry/HEAD/registry.json`
+from the account instead. Empty both to run on `localSources` alone.
 
 A local source is scanned exactly one directory deep, so a monorepo whose
 installable half sits in `packages/` is not offered. That is usually right —
@@ -418,8 +420,8 @@ the panel writes over. Namespace `omdsh-plughub`:
 
 | Field | Default | What it does |
 |---|---|---|
-| `upstream` | `omdsh-plugins` | GitHub account enumerated as the fallback source; empty disables it |
-| `registryUrl` | derived | The curated manifest; empty derives it from `upstream` |
+| `upstream` | (empty) | GitHub account enumerated as the fallback source; empty disables it |
+| `registryUrl` | `https://cdn.jsdmirror.com/gh/omdsh-plugins/registry/registry.json` | The curated manifest; empty derives it from `upstream` |
 | `localSources` | `[]` | Directories of plugin checkouts to offer |
 | `githubToken` | — | Lifts the 60-per-hour anonymous rate limit (secret) |
 | `maxRepos` | `100` | Most repositories examined when enumerating |
@@ -452,7 +454,7 @@ dsh web
 ```
 
 Then **Settings → Plugins → Plugin hub**, where the rest of the collection is
-already listed — the upstream account is the default, so this is the only plugin
+already listed — the catalog manifest is the default, so this is the only plugin
 that has to be installed from a terminal. A release can equally be named the way
 the hub names one on a card, straight from the account:
 

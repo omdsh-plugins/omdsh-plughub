@@ -31,7 +31,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { EMPTY_METADATA, HUB_PACKAGE_NAME, type InstalledEntry } from './contract.ts'
+import {
+  EMPTY_METADATA, REQUIRED_PACKAGE_NAMES, isRequiredPlugin, requiredPluginRefusal, type InstalledEntry,
+} from './contract.ts'
 import { readManifest, type ManifestFacts } from './manifest.ts'
 
 /** Directory under the Harness home holding every profile, as the launcher names it. */
@@ -254,9 +256,11 @@ export function readInstalledManifest(profileDir: string, packageName: string): 
  * The hub is the one plugin that installs the rest, so it cannot leave the
  * machine and cannot leave the composed stack — Remove would leave no way to
  * put anything back, including itself, and Disable would hide the only UI
- * that puts plugins on. Update is the one write it still accepts. Every
- * other plugin is removable and toggleable exactly when it is a dependency;
- * a template bundle is neither.
+ * that puts plugins on. The mode system is the peer nothing auto-installs,
+ * so it stays for the same reason the desktop installer carries it. Update
+ * is the one write either still accepts. Every other plugin is removable
+ * and toggleable exactly when it is a dependency; a template bundle is
+ * neither.
  * @param name - the package name.
  * @param dependencies - the profile's dependency names.
  * @returns the two flags the panel reads.
@@ -265,9 +269,31 @@ export function pluginActions(
   name: string,
   dependencies: ReadonlySet<string>,
 ): { readonly removable: boolean; readonly toggleable: boolean } {
-  if (name === HUB_PACKAGE_NAME) return { removable: false, toggleable: false }
+  if (isRequiredPlugin(name)) return { removable: false, toggleable: false }
   const managed = dependencies.has(name)
   return { removable: managed, toggleable: managed }
+}
+
+/**
+ * Why Disable was refused for a name that is installed but not toggleable.
+ * @param name - the package name.
+ * @returns the error the panel, the CLI, and the installer all print.
+ */
+export function refuseDisable(name: string): string {
+  return isRequiredPlugin(name)
+    ? requiredPluginRefusal(name, 'disabled')
+    : `${name} came with the profile rather than as a dependency, so it cannot be disabled from here`
+}
+
+/**
+ * Why Remove was refused for a name that is installed but not removable.
+ * @param name - the package name.
+ * @returns the error the panel, the CLI, and the installer all print.
+ */
+export function refuseRemove(name: string): string {
+  return isRequiredPlugin(name)
+    ? requiredPluginRefusal(name, 'uninstalled')
+    : `${name} came with the profile rather than as a dependency, so it cannot be removed from here`
 }
 
 /**
@@ -275,13 +301,15 @@ export function pluginActions(
  *
  * Composed bundles come first, in `dsh.profile.bundles` order; disabled
  * plugins follow, still listed so Enable has a row to sit on. A bundle is
- * REMOVABLE exactly when it is a dependency that is not the hub: `pnpm
- * remove` acts on dependencies, the profile template's own bundles
- * (`dsh-base` and friends) are not dependencies at all, and the hub must
- * stay installed so there is still a place that installs plugins.
+ * REMOVABLE exactly when it is a dependency that is not a required plugin:
+ * `pnpm remove` acts on dependencies, the profile template's own bundles
+ * (`dsh-base` and friends) are not dependencies at all, and the hub and
+ * the mode system must stay installed — one so there is still a place
+ * that installs plugins, the other so a mode plugin has a registry to
+ * register into.
  *
  * Enable/Disable is offered for every removable plugin. A template bundle
- * cannot leave the stack, and neither can the hub.
+ * cannot leave the stack, and neither can the hub or the mode system.
  * @param profileDir - the profile directory.
  * @param manifest - the profile manifest.
  * @returns one entry per installed plugin.
@@ -365,7 +393,8 @@ export type SetEnabledResult =
  * Disable writes the name onto `dsh.profile.disabled` and takes it off
  * `dsh.profile.bundles`. The package stays in `dependencies` — Enable is the
  * inverse, not another install. Template bundles are refused: they are not
- * dependencies. The hub is refused for both writes: it stays on the stack.
+ * dependencies. Required plugins are refused for both writes: they stay on
+ * the stack.
  * @param profileDir - the profile directory.
  * @param name - the package name.
  * @param enabled - the intended composed state.
@@ -378,12 +407,7 @@ export function setEnabled(profileDir: string, name: string, enabled: boolean): 
     return { status: 'missing', error: `${name} is not installed in this profile` }
   }
   if (!entry.toggleable) {
-    return {
-      status: 'forbidden',
-      error: name === HUB_PACKAGE_NAME
-        ? `${name} is the plugin hub and cannot be disabled`
-        : `${name} came with the profile rather than as a dependency, so it cannot be disabled from here`,
-    }
+    return { status: 'forbidden', error: refuseDisable(name) }
   }
   const nextDisabled = enabled
     ? manifest.disabled.filter(candidate => candidate !== name)
@@ -424,8 +448,8 @@ export function forgetDisabled(profileDir: string, name: string): boolean {
  * patch as a layer that belongs on the stack, so an install or update of
  * anything else would quietly re-compose every parked plugin. This strips
  * those names again. Template bundles are never taken off, even if a hand
- * edit put them on the list. The hub is never parked: a mark left by a
- * hand edit is dropped, and the name is put back on the stack.
+ * edit put them on the list. Required plugins are never parked: a mark
+ * left by a hand edit is dropped, and the name is put back on the stack.
  * @param profileDir - the profile directory.
  * @returns whether the file changed.
  */
@@ -433,11 +457,11 @@ export function applyDisabled(profileDir: string): boolean {
   const manifest = readProfileManifest(profileDir)
   const dependencies = new Set(Object.keys(manifest.dependencies ?? {}))
   const parked = new Set(
-    manifest.disabled.filter(name => name !== HUB_PACKAGE_NAME && dependencies.has(name)),
+    manifest.disabled.filter(name => !isRequiredPlugin(name) && dependencies.has(name)),
   )
   const nextBundles = manifest.bundles.filter(name => !parked.has(name))
-  if (manifest.disabled.includes(HUB_PACKAGE_NAME) && !nextBundles.includes(HUB_PACKAGE_NAME)) {
-    nextBundles.push(HUB_PACKAGE_NAME)
+  for (const name of REQUIRED_PACKAGE_NAMES) {
+    if (manifest.disabled.includes(name) && !nextBundles.includes(name)) nextBundles.push(name)
   }
   const nextDisabled = [...parked]
   if (sameStrings(manifest.bundles, nextBundles) && sameStrings(manifest.disabled, nextDisabled)) return false

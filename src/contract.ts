@@ -41,6 +41,42 @@ export const ENABLED_PATH = `${ROUTE_PREFIX}/enabled`
 export const HUB_PACKAGE_NAME = '@omdsh-plugins/omdsh-plughub'
 
 /**
+ * The mode registry every mode plugin registers into. It can be updated, and
+ * it cannot be disabled or uninstalled: without it a mode plugin loads inert,
+ * and installing Chat or Code through the hub does not bring it (the profile
+ * uses `autoInstallPeers: false`). It travels with the desktop installer for
+ * that reason, the same way the hub does.
+ */
+export const MODE_PACKAGE_NAME = '@omdsh-plugins/omdsh-basemode'
+
+/**
+ * Plugins that stay on the composed stack. Each can be updated; none can be
+ * disabled or uninstalled, even when the profile depends on them.
+ */
+export const REQUIRED_PACKAGE_NAMES = [HUB_PACKAGE_NAME, MODE_PACKAGE_NAME] as const
+
+/**
+ * Whether a package is one of {@link REQUIRED_PACKAGE_NAMES}.
+ * @param name - the package name.
+ * @returns true for the hub and the mode system.
+ */
+export function isRequiredPlugin(name: string): boolean {
+  return (REQUIRED_PACKAGE_NAMES as readonly string[]).includes(name)
+}
+
+/**
+ * Why a required plugin refused Disable or Remove.
+ * @param name - the package name.
+ * @param action - the write that was refused.
+ * @returns the error the panel, the CLI, and the installer all print.
+ */
+export function requiredPluginRefusal(name: string, action: 'disabled' | 'uninstalled'): string {
+  if (name === HUB_PACKAGE_NAME) return `${name} is the plugin hub and cannot be ${action}`
+  if (name === MODE_PACKAGE_NAME) return `${name} is the mode system and cannot be ${action}`
+  return `${name} cannot be ${action}`
+}
+
+/**
  * POST `{ name }`: reinstall one installed plugin from the specifier the
  * catalog currently resolves for it, which is how a newer version arrives.
  *

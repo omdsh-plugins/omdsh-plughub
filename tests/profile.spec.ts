@@ -13,7 +13,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { HUB_PACKAGE_NAME } from '../src/contract.ts'
+import { HUB_PACKAGE_NAME, MODE_PACKAGE_NAME, REQUIRED_PACKAGE_NAMES } from '../src/contract.ts'
 import {
   applyDisabled, forgetDisabled, isProfileDirectory, isRestartRequired, listInstalled,
   profileFromBaseUrl, profileFromDirectory, readProfileManifest, resolveHome, resolvePackageDir,
@@ -242,25 +242,27 @@ describe('listInstalled', () => {
     expect(entries[2]).toMatchObject({ name: '@x/omdsh-b', enabled: false, toggleable: true, removable: true })
   })
 
-  it('never offers Disable or Remove on the hub', () => {
-    const home = scratchHome()
-    const dir = makeProfile(home, 'web', {
-      dependencies: { [HUB_PACKAGE_NAME]: '^1.0.0' },
-      dsh: { profile: { bundles: [HUB_PACKAGE_NAME] } },
+  for (const name of REQUIRED_PACKAGE_NAMES) {
+    it(`never offers Disable or Remove on ${name}`, () => {
+      const home = scratchHome()
+      const dir = makeProfile(home, 'web', {
+        dependencies: { [name]: '^1.0.0' },
+        dsh: { profile: { bundles: [name] } },
+      })
+      const entries = listInstalled(dir, readProfileManifest(dir))
+      expect(entries[0]).toMatchObject({ name, removable: false, enabled: true, toggleable: false })
     })
-    const entries = listInstalled(dir, readProfileManifest(dir))
-    expect(entries[0]).toMatchObject({ name: HUB_PACKAGE_NAME, removable: false, enabled: true, toggleable: false })
-  })
 
-  it('never offers Disable on a seeded hub that is not a dependency', () => {
-    const home = scratchHome()
-    const dir = makeProfile(home, 'web', {
-      dsh: { profile: { bundles: [HUB_PACKAGE_NAME] } },
+    it(`never offers Disable on a seeded ${name} that is not a dependency`, () => {
+      const home = scratchHome()
+      const dir = makeProfile(home, 'web', {
+        dsh: { profile: { bundles: [name] } },
+      })
+      makePackage(dir, name, { name, dsh: { bundle: { patch: './p.yml' } } })
+      const entries = listInstalled(dir, readProfileManifest(dir))
+      expect(entries[0]).toMatchObject({ name, removable: false, enabled: true, toggleable: false })
     })
-    makePackage(dir, HUB_PACKAGE_NAME, { name: HUB_PACKAGE_NAME, dsh: { bundle: { patch: './p.yml' } } })
-    const entries = listInstalled(dir, readProfileManifest(dir))
-    expect(entries[0]).toMatchObject({ name: HUB_PACKAGE_NAME, removable: false, enabled: true, toggleable: false })
-  })
+  }
 })
 
 describe('setEnabled', () => {
@@ -302,19 +304,23 @@ describe('setEnabled', () => {
     expect(readProfileManifest(dir)).toMatchObject({ bundles: [], disabled: ['@x/omdsh-a'] })
   })
 
-  it('refuses a template bundle and the hub', () => {
+  it('refuses a template bundle, the hub, and the mode system', () => {
     const home = scratchHome()
     const dir = makeProfile(home, 'web', {
-      dependencies: { [HUB_PACKAGE_NAME]: '^1.0.0' },
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME] } },
+      dependencies: { [HUB_PACKAGE_NAME]: '^1.0.0', [MODE_PACKAGE_NAME]: '^1.0.0' },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME, MODE_PACKAGE_NAME] } },
     })
     expect(setEnabled(dir, '@deepseek-ai/dsh-base', false).status).toBe('forbidden')
     expect(setEnabled(dir, HUB_PACKAGE_NAME, false)).toMatchObject({
       status: 'forbidden',
       error: expect.stringContaining('cannot be disabled'),
     })
+    expect(setEnabled(dir, MODE_PACKAGE_NAME, false)).toMatchObject({
+      status: 'forbidden',
+      error: expect.stringContaining('cannot be disabled'),
+    })
     expect(readProfileManifest(dir)).toMatchObject({
-      bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME],
+      bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME, MODE_PACKAGE_NAME],
       disabled: [],
     })
   })
@@ -341,15 +347,16 @@ describe('applyDisabled', () => {
     expect(applyDisabled(dir)).toBe(false)
   })
 
-  it('clears a park mark on the hub and puts it back on the stack', () => {
+  it('clears a park mark on the hub and the mode system and puts them back on the stack', () => {
     const home = scratchHome()
     const dir = makeProfile(home, 'web', {
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'], disabled: [HUB_PACKAGE_NAME] } },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'], disabled: [HUB_PACKAGE_NAME, MODE_PACKAGE_NAME] } },
     })
     makePackage(dir, HUB_PACKAGE_NAME, { name: HUB_PACKAGE_NAME, dsh: { bundle: { patch: './p.yml' } } })
+    makePackage(dir, MODE_PACKAGE_NAME, { name: MODE_PACKAGE_NAME, dsh: { bundle: { patch: './p.yml' } } })
     expect(applyDisabled(dir)).toBe(true)
     expect(readProfileManifest(dir)).toMatchObject({
-      bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME],
+      bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME, MODE_PACKAGE_NAME],
       disabled: [],
     })
     const entries = listInstalled(dir, readProfileManifest(dir))
@@ -358,17 +365,27 @@ describe('applyDisabled', () => {
       toggleable: false,
       removable: false,
     })
+    expect(entries.find(entry => entry.name === MODE_PACKAGE_NAME)).toMatchObject({
+      enabled: true,
+      toggleable: false,
+      removable: false,
+    })
   })
 
-  it('never takes a template bundle or the hub off the stack', () => {
+  it('never takes a template bundle, the hub, or the mode system off the stack', () => {
     const home = scratchHome()
     const dir = makeProfile(home, 'web', {
-      dependencies: { [HUB_PACKAGE_NAME]: '^1.0.0' },
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME], disabled: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME] } },
+      dependencies: { [HUB_PACKAGE_NAME]: '^1.0.0', [MODE_PACKAGE_NAME]: '^1.0.0' },
+      dsh: {
+        profile: {
+          bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME, MODE_PACKAGE_NAME],
+          disabled: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME, MODE_PACKAGE_NAME],
+        },
+      },
     })
     expect(applyDisabled(dir)).toBe(true)
     expect(readProfileManifest(dir)).toMatchObject({
-      bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME],
+      bundles: ['@deepseek-ai/dsh-base', HUB_PACKAGE_NAME, MODE_PACKAGE_NAME],
       disabled: [],
     })
   })

@@ -61,7 +61,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
-import { HUB_PACKAGE_NAME, type OperationKind, type OperationState } from './contract.ts'
+import { isRequiredPlugin, requiredPluginRefusal, type OperationKind, type OperationState } from './contract.ts'
 import { applyDisabled, forgetDisabled, readProfileManifest, setEnabled } from './profile.ts'
 import { isGitSpec, isPackageName } from './catalog/source.ts'
 import { resolvePnpmDir } from './pnpm.ts'
@@ -577,8 +577,8 @@ export class Installer {
    */
   uninstall(name: string): OperationState {
     return this.enqueue('uninstall', name, () => {
-      if (name === HUB_PACKAGE_NAME) {
-        throw new Error(`${name} is the plugin hub and cannot be uninstalled`)
+      if (isRequiredPlugin(name)) {
+        throw new Error(requiredPluginRefusal(name, 'uninstalled'))
       }
       // A parked plugin is off `bundles`, and `dsh plugin remove` matches
       // that list. Put it back first so the launcher can take the

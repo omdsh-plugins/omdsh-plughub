@@ -36,7 +36,7 @@
 import type {
   InstalledEntry, SettingsDocument, SettingsNamespaceView, SettingsPathOp, SettingsSecretView,
 } from './contract.ts'
-import { isOverridden } from './settings-path.ts'
+import { getPath, isOverridden } from './settings-path.ts'
 
 /** One schema-declared secret position as the seam reports it. */
 interface SeamSecretSlot {
@@ -102,12 +102,20 @@ export function ownedNamespaces(entries: readonly InstalledEntry[]): Set<string>
  * @param rawUser - the unredacted user layer, Host-side only, so secret
  *   override can be recovered after redaction deleted the key. Never copied
  *   onto the view.
+ * @param rawValue - the unredacted composed value, Host-side only, so an
+ *   empty-string secret can be reported as unset. Never copied onto the view.
  * @returns the wire view.
  */
-export function toNamespaceView(descriptor: SettingsDescriptorLike, rawUser?: unknown): SettingsNamespaceView {
+export function toNamespaceView(
+  descriptor: SettingsDescriptorLike,
+  rawUser?: unknown,
+  rawValue?: unknown,
+): SettingsNamespaceView {
   const secrets: SettingsSecretView[] = (descriptor.secrets ?? []).map(slot => ({
     path: slot.path,
-    set: slot.set,
+    // The seam's `set` is `value !== undefined`, so `''` reads as stored.
+    // Empty is not a token — the Host already drops it before talking to GitHub.
+    set: getPath(rawValue, slot.path) === '' ? false : slot.set,
     overridden: isOverridden(rawUser, slot.path),
   }))
   return {
@@ -124,17 +132,23 @@ export function toNamespaceView(descriptor: SettingsDescriptorLike, rawUser?: un
   }
 }
 
+/** Unredacted layers kept Host-side: user for override, value for empty-secret detection. */
+interface RawLayers {
+  readonly user: unknown
+  readonly value: unknown
+}
+
 /**
- * Unredacted user layers of the owned namespaces. Read Host-side so secret
+ * Unredacted layers of the owned namespaces. Read Host-side so secret
  * presence survives; the values never leave this function.
  * @param settings - the settings seam.
  * @param owned - the namespaces installed plugins claim.
- * @returns user layers by namespace.
+ * @returns user layers (for override) and composed values (for empty secrets).
  */
-function rawUserByNamespace(settings: SettingsSeam, owned: ReadonlySet<string>): Map<string, unknown> {
-  const layers = new Map<string, unknown>()
+function rawLayersByNamespace(settings: SettingsSeam, owned: ReadonlySet<string>): Map<string, RawLayers> {
+  const layers = new Map<string, RawLayers>()
   for (const descriptor of settings.describe()) {
-    if (owned.has(descriptor.ns)) layers.set(descriptor.ns, descriptor.user)
+    if (owned.has(descriptor.ns)) layers.set(descriptor.ns, { user: descriptor.user, value: descriptor.value })
   }
   return layers
 }
@@ -146,7 +160,7 @@ function rawUserByNamespace(settings: SettingsSeam, owned: ReadonlySet<string>):
  * @returns the wire document.
  */
 export function describeOwned(settings: SettingsSeam, owned: ReadonlySet<string>): SettingsDocument {
-  const rawUsers = rawUserByNamespace(settings, owned)
+  const raw = rawLayersByNamespace(settings, owned)
   return {
     writable: settings.writable,
     // Reported without the path: a Host path on the wire is a Host path an
@@ -155,7 +169,10 @@ export function describeOwned(settings: SettingsSeam, owned: ReadonlySet<string>
     namespaces: settings
       .describe({ redactSecrets: true })
       .filter(descriptor => owned.has(descriptor.ns))
-      .map(descriptor => toNamespaceView(descriptor, rawUsers.get(descriptor.ns))),
+      .map((descriptor) => {
+        const layers = raw.get(descriptor.ns)
+        return toNamespaceView(descriptor, layers?.user, layers?.value)
+      }),
   }
 }
 
@@ -226,5 +243,5 @@ export async function writeOwned(
     return { status: 'rejected', message: `settings namespace "${request.ns}" is no longer registered` }
   }
   const raw = settings.describe().find(candidate => candidate.ns === request.ns)
-  return { status: 'ok', namespace: toNamespaceView(descriptor, raw?.user) }
+  return { status: 'ok', namespace: toNamespaceView(descriptor, raw?.user, raw?.value) }
 }

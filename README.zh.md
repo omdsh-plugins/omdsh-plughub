@@ -4,7 +4,7 @@
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 设置里的插
 件中心：在自带的 Plugins 页签旁边再加一个，列出可以从上游安装的插件，并且把已
-经装上的插件都配起来。
+经装上的插件都配起来，或者先停用、文件还留着。插件中心和模式系统都留在栈上。
 
 以前装一个插件是在终端里敲 `dsh plugin --profile web add <path>`，配一个插件
 是手改 profile 的 `cordis.patch.yml`。现在这两件事都在页面上。
@@ -16,7 +16,7 @@
 | 设置 → 插件 下的第三个页签 **插件中心** | `settings.plugins.tab` 里的一个条目——ui-settings 为"清单类"和"配置类"插件留的那个座位 |
 | 合并后的目录，以及每个来源的结果 | `GET /api/plughub/catalog`，由 `local`、`registry`、`github` 三个来源解析而来 |
 | 可安装上的安装或更新；已安装上的更新和卸载 | `POST /api/plughub/install`、`/update`、`/uninstall`，各自 shell 出去执行 `dsh plugin --profile <name>` |
-| 已安装上的启用/停用 | `POST /api/plughub/enabled`，改写 `dsh.profile.bundles` 和一份停用名单；包仍留在 `node_modules`。插件中心自己可以更新，不能停用，也不能卸载。 |
+| 已安装上的启用/停用 | `POST /api/plughub/enabled`，改写 `dsh.profile.bundles` 和一份停用名单；包仍留在 `node_modules`。插件中心和模式系统可以更新，不能停用，也不能卸载。 |
 | 每个已安装插件的配置表单 | `GET`/`POST /api/plughub/settings`，转运 `ctx.settings.describe({ redactSecrets: true })` 与 `ctx.settings.mutate` |
 | 操作进度与重启提示 | `GET /api/plughub/events`，一条事件流 |
 | `omdsh.plugin.card` slot | `ctx.slots`——通用表单画不出来的控件，插件在这里注册自己的那张脸 |
@@ -91,7 +91,7 @@ bundle 用 `dsh.plughub.settings` 声明了它时才可达，所以同一个进�
 
 **已安装**——这个 profile 里的每个插件一行，无论当前是否在组装栈上。启用和停
 用共用一个按钮：停用把依赖从层栈上拿下来，但不碰 `node_modules`，再用时按启
-用即可，不必重新安装。模板自带的 bundle 和插件中心本身不能从这里停用。展开后
+用即可，不必重新安装。模板自带的 bundle、插件中心和模式系统都不能从这里停用。展开后
 是按该插件的 settings schema 生成的表单；没有注册命名空间的插件会明确说"没有
 可配置项"，这是一个真实的回答，而不是一个空盒子。
 
@@ -150,13 +150,16 @@ profile 里记的是确切版本而不是一个范围，对一个「更新靠按
 优先级低的来源仍然会补上赢家缺少的 `repo`——本地 checkout 很少知道自己发布在
 哪里，卡片上的链接因此更好用。
 
-开箱即用时，两个远程来源都指向这个集合的发布账号
-[`github.com/omdsh-plugins`](https://github.com/omdsh-plugins)：`upstream` 默认
-就是 `omdsh-plugins`，`registryUrl` 由它推导为
-`https://raw.githubusercontent.com/omdsh-plugins/registry/HEAD/registry.json`。
-所以装上这一个插件就是全部的引导过程——第一次打开这个标签页，集合里其余插件已经在
-目录里了，不需要配置任何东西。把 `upstream` 指向你自己的账号就能发布自己的插件集合，
-清空它则只用 `localSources`。
+开箱即用时，目录就是这个集合发布的那份策展清单，从缓存 GitHub 的 CDN 上取：
+
+`https://cdn.jsdmirror.com/gh/omdsh-plugins/registry/registry.json`
+
+GitHub 枚举默认关掉——`upstream` 是空的——因为那一份文件已经列出了每一个插件，而问
+GitHub 这个账号有哪些仓库、再对每个仓库去拉 `package.json`，正是第一次打开页签会
+变慢的原因。把 `upstream` 指到一个账号就会连同枚举一起打开；把 `registryUrl` 清空，
+则会改由账号推导
+`https://raw.githubusercontent.com/<account>/registry/HEAD/registry.json`。两个都
+清空则只用 `localSources`。
 
 本地来源只往下扫**一层目录**，所以一个把可安装的那一半放在 `packages/` 里的
 monorepo 不会被提供。这通常是对的——这里的 monorepo 装着的多半是**另一种形态**
@@ -358,8 +361,8 @@ Schema.string().role('secret', { label: { '': 'API key', zh: '密钥' } })
 
 | 字段 | 默认值 | 作用 |
 |---|---|---|
-| `upstream` | `omdsh-plugins` | 作为兜底来源被枚举的 GitHub 账号；留空则关闭 |
-| `registryUrl` | 推导 | 人工维护的清单；留空则由 `upstream` 推导 |
+| `upstream` | （空） | 作为兜底来源被枚举的 GitHub 账号；留空则关闭 |
+| `registryUrl` | `https://cdn.jsdmirror.com/gh/omdsh-plugins/registry/registry.json` | 人工维护的清单；留空则由 `upstream` 推导 |
 | `localSources` | `[]` | 作为可安装条目提供的本地 checkout 目录 |
 | `githubToken` | — | 解除匿名枚举每小时 60 次的限流（密钥） |
 | `maxRepos` | `100` | 枚举时最多检查的仓库数 |
@@ -387,7 +390,7 @@ dsh plugin --profile web add @omdsh-plugins/omdsh-plughub
 dsh web
 ```
 
-然后打开 **设置 → 插件 → 插件中心**，集合里其余插件已经列在那里了——上游账号
+然后打开 **设置 → 插件 → 插件中心**，集合里其余插件已经列在那里了——目录清单
 是默认值，所以需要在终端里装的只有这一个插件。也可以按插件中心自己在卡片上用的
 写法，直接从账号装一个发布版：
 

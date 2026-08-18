@@ -78,6 +78,19 @@ describe('describeOwned', () => {
     expect(settings.describeCalls).toEqual([undefined, { redactSecrets: true }])
   })
 
+  it('reports an empty-string secret as unset without putting the value on the wire', () => {
+    const redacted = descriptor('omdsh-a', {
+      secrets: [{ path: ['githubToken'], set: true }],
+    })
+    const raw = descriptor('omdsh-a', {
+      value: { githubToken: '' },
+      secrets: [{ path: ['githubToken'], set: true }],
+    })
+    const document = describeOwned(seam([redacted], undefined, [raw]), new Set(['omdsh-a']))
+    expect(document.namespaces[0]?.secrets).toEqual([{ path: ['githubToken'], set: false, overridden: false }])
+    expect(JSON.stringify(document)).not.toContain('githubToken":""')
+  })
+
   it('reports a stored secret as overridden without putting the value on the wire', () => {
     const redacted = descriptor('omdsh-a', {
       user: { model: 'gemini' },
@@ -159,6 +172,31 @@ describe('toNamespaceView', () => {
       {},
     )
     expect(view.secrets).toEqual([{ path: ['apiKey'], set: true, overridden: false }])
+  })
+
+  it('does not report an empty-string secret as stored', () => {
+    // The seam's `set` is `value !== undefined`, so `''` arrives as stored.
+    const view = toNamespaceView(
+      descriptor('omdsh-a', {
+        secrets: [{ path: ['githubToken'], set: true }],
+      }),
+      {},
+      { githubToken: '' },
+    )
+    expect(view.secrets).toEqual([{ path: ['githubToken'], set: false, overridden: false }])
+    expect(JSON.stringify(view)).not.toContain('githubToken":""')
+  })
+
+  it('still reports a non-empty secret as stored when the unredacted value is present', () => {
+    const view = toNamespaceView(
+      descriptor('omdsh-a', {
+        secrets: [{ path: ['githubToken'], set: true }],
+      }),
+      { githubToken: 'ghp_live' },
+      { githubToken: 'ghp_live' },
+    )
+    expect(view.secrets).toEqual([{ path: ['githubToken'], set: true, overridden: true }])
+    expect(JSON.stringify(view)).not.toContain('ghp_live')
   })
 })
 

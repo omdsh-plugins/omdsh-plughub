@@ -60,7 +60,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import Schema from '@deepseek-ai/schemastery'
 import {
-  CATALOG_PATH, ENABLED_PATH, EVENTS_PATH, HUB_PACKAGE_NAME, HUB_SETTINGS_NAMESPACE,
+  CATALOG_PATH, ENABLED_PATH, EVENTS_PATH, HUB_SETTINGS_NAMESPACE,
   INSTALL_PATH, INSTALLED_PATH, SETTINGS_PATH, UNINSTALL_PATH, UPDATE_PATH,
   type CatalogDocument, type InstalledDocument, type OperationState, type PlughubEvent,
 } from './contract.ts'
@@ -74,7 +74,8 @@ import {
   describeOwned, ownedNamespaces, readOps, writeOwned, type SettingsSeam,
 } from './settings-gateway.ts'
 import {
-  applyDisabled, isRestartRequired, listInstalled, readProfileManifest, resolveHome, resolveProfile,
+  applyDisabled, isRestartRequired, listInstalled, readProfileManifest, refuseDisable, refuseRemove,
+  resolveHome, resolveProfile,
   ProfileResolutionError, type ResolvedProfile,
 } from './profile.ts'
 import { isLoopbackRequest, isTrustedRequest } from './trust-fence.ts'
@@ -149,7 +150,10 @@ export const Config = Schema.object({
   localSources: Schema.array(Schema.string()).default([])
     .extra('extra', label('Local checkouts', '本地插件目录'))
     .description('Directories of plugin checkouts offered as installable entries. Highest precedence.'),
-  githubToken: Schema.string().role('secret', label('GitHub token', 'GitHub 令牌')).default('')
+  // No `.default('')`: the harness reports a secret as stored when the
+  // composed value is anything but `undefined`, so an empty default made a
+  // fresh install look as if a token was already there.
+  githubToken: Schema.string().role('secret', label('GitHub token', 'GitHub 令牌'))
     .description('GitHub token, to lift the 60-requests-per-hour anonymous rate limit on enumeration.'),
   maxRepos: Schema.number().min(1).max(500).default(DEFAULT_MAX_REPOS)
     .extra('extra', label('Repositories examined', '枚举仓库上限'))
@@ -607,14 +611,11 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
         return
       }
       if (!entry.removable) {
-        // The hub must stay installed: it is the only UI that puts plugins
-        // back. A template bundle is not a dependency, so `pnpm remove` would
+        // Required plugins stay installed: the hub is the only UI that puts
+        // plugins back, and the mode system is the peer nothing auto-installs.
+        // A template bundle is not a dependency, so `pnpm remove` would
         // report success and change nothing — worse than refusing.
-        sendJson(res, 409, {
-          error: target === HUB_PACKAGE_NAME
-            ? `${target} is the plugin hub and cannot be uninstalled`
-            : `${target} came with the profile rather than as a dependency, so it cannot be removed from here`,
-        })
+        sendJson(res, 409, { error: refuseRemove(target) })
         return
       }
       sendJson(res, 202, { operation: ready.installer.uninstall(target) })
@@ -656,11 +657,7 @@ export function apply(ctx: PlughubContext, entry: Partial<PlughubConfig> = {}): 
         return
       }
       if (!entry.toggleable) {
-        sendJson(res, 409, {
-          error: target === HUB_PACKAGE_NAME
-            ? `${target} is the plugin hub and cannot be disabled`
-            : `${target} came with the profile rather than as a dependency, so it cannot be disabled from here`,
-        })
+        sendJson(res, 409, { error: refuseDisable(target) })
         return
       }
       sendJson(res, 202, { operation: ready.installer.setEnabled(target, enabled) })
