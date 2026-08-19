@@ -33,15 +33,12 @@ const ID = '@omdsh-plugins/omdsh-plughub'
 const CLIENT_EXTERNALS: readonly string[] = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
   '@deepseek-ai/dsh-client-runtime/client',
 ]
 
 /** Wire/type layers a client bundle may inline: no runtime identity to share. */
-const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
+const INLINE_SAFE = /^(?:@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand|client-schema-form)(\/|$)|@deepseek-ai\/schemastery$)/
 /** Generated descriptor/codec contribution, likewise identity-free. */
 const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
 
@@ -112,6 +109,10 @@ const browserHalf: UserConfig = {
       if (!source.startsWith('@deepseek-ai/')) return null
       if (CLIENT_EXTERNALS.includes(source)) return null
       if (INLINE_SAFE.test(source) || GENERATED_REMOTE.test(source)) return null
+      // Vendor libraries (schemastery, cosmokit, …) pulled in by the frozen
+      // schema-form helper. The gate exists to stop a second copy of another
+      // CLIENT plugin, not to refuse the framework packages that helper needs.
+      if (!source.startsWith('@deepseek-ai/dsh-client-')) return null
       throw new Error(
         `client bundle purity: "${source}" is not a platform module, an inline-safe wire layer, or a generated /remote contribution — `
         + 'cross-plugin value imports are forbidden; collaborate through cordis services',
